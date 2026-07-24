@@ -10,9 +10,19 @@ export const meta = {
 
 // ── args (resolved by the feature skill, which owns ${CLAUDE_PLUGIN_DATA}) ──
 // { brief, playbookDir, planPath, tier? }
-const { brief, playbookDir, planPath, tier } = args || {}
+// Accept args whether passed as a real object (preferred) or a JSON string.
+let input = args || {}
+if (typeof input === 'string') {
+  try { input = JSON.parse(input) } catch (e) {
+    throw new Error('feature-plan: args arrived as a non-JSON string — pass it as an object: ' + e.message)
+  }
+}
+const { brief, playbookDir, planPath, tier } = input
 if (!brief || !playbookDir || !planPath) {
-  throw new Error('feature-plan requires args.brief, args.playbookDir, args.planPath')
+  throw new Error(
+    'feature-plan requires args.brief, args.playbookDir, args.planPath — got keys: [' +
+    Object.keys(input).join(', ') + ']'
+  )
 }
 
 const DOMAINS = ['frontend', 'backend', 'data', 'algo', 'integration']

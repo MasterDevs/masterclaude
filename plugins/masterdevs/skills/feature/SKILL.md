@@ -10,7 +10,7 @@ You are running the masterdevs feature pipeline. The user's brief follows the co
 ## Step 0 — Resolve paths (do this first)
 
 - `PLUGIN_ROOT` = `${CLAUDE_PLUGIN_ROOT}` (this plugin's cache dir — read-only seeds; wiped on update).
-- `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back** to `~/.claude/plugins/data/masterdevs/` (create it). All mutable state lives here — never write learned data under `PLUGIN_ROOT`.
+- `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back** to `~/.claude/plugins/data/masterdevs-masterclaude/` (the `<plugin>-<marketplace>` id; create it). All mutable state lives here — never write learned data under `PLUGIN_ROOT`.
 - `PLAYBOOK_DIR` = `$DATA_DIR/playbook`
 - `PLAN_PATH` = an absolute path in the current repo, e.g. `$(pwd)/.masterdevs/PLAN.md` (create `.masterdevs/` if needed; suggest the user gitignore it).
 - `ROSTER_PATH` = `$PLAYBOOK_DIR/rosters/reviewers.json`
@@ -28,7 +28,7 @@ Quick-read the brief. If it is clearly a single small/mechanical change, set `ti
 
 ## Step 3 — Plan (workflow, phase 1)
 
-Invoke the planning workflow (scripts ship as plain files — call by path):
+Invoke the planning workflow (scripts ship as plain files — call by path). **Pass `args` as a real JSON object, never as a stringified/escaped blob** — a stringified value reaches the script as one string and the run fails immediately:
 
 ```
 Workflow({
@@ -37,6 +37,8 @@ Workflow({
 })
 ```
 
+Substitute the resolved absolute paths into the values (do not leave `<...>` placeholders or literal `$VARS`).
+
 It returns `{summary, domains, subtaskCount, planPath, needsApproval}`.
 
 ## Step 4 — Approval gate (STOP here if needsApproval)
@@ -44,6 +46,8 @@ It returns `{summary, domains, subtaskCount, planPath, needsApproval}`.
 If `needsApproval` is true: **stop and present the plan.** Read `PLAN_PATH`, summarize the decomposition — subtasks, tier/model routing, chosen patterns, in-scope vs. flagged refactors, and any security tripwires — and ask the user to approve, edit, or reject. If they edit, they edit `PLAN.md` directly (the build phase re-reads it, so their edits win). Do not proceed until approved. If `needsApproval` is false (small tier), continue.
 
 ## Step 5 — Build (workflow, phase 2)
+
+Again, pass `args` as a real JSON object with the resolved absolute paths substituted in:
 
 ```
 Workflow({
