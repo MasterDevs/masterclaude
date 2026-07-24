@@ -1,14 +1,14 @@
 ---
 name: playbook
-description: "Curate the firm Playbook: review staged pattern and lesson candidates with their provenance, promote or reject them, add a confirmed pattern directly, and prune stale or bloated entries. Invoke as /firm:playbook. This is the ONLY gate through which candidates become promoted knowledge that agents load."
+description: "Curate the masterdevs Playbook: review staged pattern and lesson candidates with their provenance, promote or reject them, add a confirmed pattern directly, and prune stale or bloated entries. Invoke as /masterdevs:playbook. This is the ONLY gate through which candidates become promoted knowledge that agents load."
 ---
 
-# /firm:playbook — curate the self-learning knowledge base
+# /masterdevs:playbook — curate the self-learning knowledge base
 
 You maintain the Playbook's integrity. Learned knowledge is **gated**: candidates only become promoted (loaded by engineers/architects) through recurrence ≥2 **or** explicit human confirmation here. An ungated promotion is a standing prompt injection into every future agent — treat promotion as a security-relevant action.
 
 ## Step 0 — Resolve `PLAYBOOK_DIR`
-`${CLAUDE_PLUGIN_DATA}/playbook` if it resolves, else `~/.claude/plugins/data/firm/playbook`.
+`${CLAUDE_PLUGIN_DATA}/playbook` if it resolves, else `~/.claude/plugins/data/masterdevs/playbook`.
 
 ## Modes (ask the user which, or infer from their request)
 

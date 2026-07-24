@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'firm-feature-plan',
+  name: 'masterdevs-feature-plan',
   description: 'Phase 1: scout the affected subsystems, then architect a PLAN.md of model-routed, review-lensed subtasks. Stops for human approval before any code is written.',
   phases: [
     { title: 'Scout', detail: 'read-only map of affected subsystems' },
@@ -132,7 +132,7 @@ phase('Architect')
 // Generalist architect first. It declares which domains the feature spans.
 const generalist = await agent(
   `You are the generalist Architect (lens: "generalist"). Decompose this feature into subtasks ` +
-  `following the firm PLAN schema. Route each subtask's tier/model, choose design patterns from the ` +
+  `following the masterdevs PLAN schema. Route each subtask's tier/model, choose design patterns from the ` +
   `catalogs (detection recipes — match the smell, honor Skip-when), bin refactors as in-scope vs. flagged, ` +
   `pull in relevant refactor-backlog items, apply the spine-subtask rule for shared helpers, and stage any ` +
   `newly-discovered patterns as candidates (never write to a promoted catalog).\n\n` +
@@ -141,7 +141,7 @@ const generalist = await agent(
   `Feature brief:\n${brief}\n\n${scoutBlock}\n${playbookNote}\n\n` +
   `In "domains", list every domain this feature genuinely spans.`,
   { label: 'architect:generalist', phase: 'Architect', schema: PLAN_SCHEMA,
-    agentType: 'firm:architect', model: 'opus' }
+    agentType: 'masterdevs:architect', model: 'opus' }
 )
 
 let plan = generalist
@@ -159,7 +159,7 @@ if (generalist && generalist.domains && generalist.domains.length > 1) {
     `A generalist first-pass plan (revise/reconcile, don't just accept it):\n` +
     `${JSON.stringify(generalist, null, 2)}\n${playbookNote}`,
     { label: 'principal', phase: 'Architect', schema: PLAN_SCHEMA,
-      agentType: 'firm:principal', model: 'opus' }
+      agentType: 'masterdevs:principal', model: 'opus' }
   )
   if (principal) plan = principal
 }

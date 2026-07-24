@@ -1,6 +1,6 @@
-# firm — orchestrated feature development for Claude Code
+# masterdevs — orchestrated feature development for Claude Code
 
-`firm` runs a feature from a one-line brief to reviewed, integrated code through a team of specialized agents, over a design-pattern knowledge base that learns as you use it.
+`masterdevs` runs a feature from a one-line brief to reviewed, integrated code through a team of specialized agents, over a design-pattern knowledge base that learns as you use it.
 
 ## The pipeline
 
@@ -22,9 +22,9 @@ Priority hierarchy governing all generated code: **security > reliability/correc
 
 | Command | What it does |
 |---|---|
-| `/firm:feature <brief>` | Run the full pipeline. Stops for your approval between plan and build (except small-tier). |
-| `/firm:playbook` | Review, promote, or prune staged pattern/lesson candidates — the only gate into promoted knowledge. |
-| `/firm:roster` | Register a specialist reviewer (any installed plugin's agent) into the Review Panel. |
+| `/masterdevs:feature <brief>` | Run the full pipeline. Stops for your approval between plan and build (except small-tier). |
+| `/masterdevs:playbook` | Review, promote, or prune staged pattern/lesson candidates — the only gate into promoted knowledge. |
+| `/masterdevs:roster` | Register a specialist reviewer (any installed plugin's agent) into the Review Panel. |
 
 ## Model routing
 
@@ -42,13 +42,13 @@ Classification **fails upward**: uncertain tier → the higher model. Sensitivit
 Agents share a knowledge base — per-domain **pattern catalogs** (detection recipes: a smell to match, an overfit guard to honor), per-lens **reviewer lessons**, and a **refactor backlog**. It learns in two lanes:
 
 - **Shipped seeds** live read-only in the plugin and are versioned. On update they **merge** into your data, never clobber.
-- **Learned state** lives in `~/.claude/plugins/data/firm/` and survives updates.
+- **Learned state** lives in `~/.claude/plugins/data/masterdevs/` and survives updates.
 
-New patterns and lessons are **staged as candidates** with provenance. They only become promoted (loaded by agents) via recurrence ≥2 **or** your confirmation through `/firm:playbook`. Ungated promotion is treated as a security-relevant action — a bad lesson would inject into every future agent.
+New patterns and lessons are **staged as candidates** with provenance. They only become promoted (loaded by agents) via recurrence ≥2 **or** your confirmation through `/masterdevs:playbook`. Ungated promotion is treated as a security-relevant action — a bad lesson would inject into every future agent.
 
 ## Extending the Review Panel
 
-`/firm:roster` registers a reviewer with a lens, triggers (`always` / `lenses` / `globs` / `sensitiveTier`), a model, and a lessons lane. Its findings flow back into the lessons engineers preload, so the team gets better at avoiding what your reviewers catch.
+`/masterdevs:roster` registers a reviewer with a lens, triggers (`always` / `lenses` / `globs` / `sensitiveTier`), a model, and a lessons lane. Its findings flow back into the lessons engineers preload, so the team gets better at avoiding what your reviewers catch.
 
 ## Notes
 - Workflow scripts (`workflows/*.js`) ship as plain files and are invoked by path from the `feature` skill.

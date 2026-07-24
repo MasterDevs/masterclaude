@@ -1,7 +1,0 @@
-[
-  { "lens": "frontend",    "agentType": "firm:architect", "catalogs": ["core", "frontend"],              "model": "opus" },
-  { "lens": "backend",     "agentType": "firm:architect", "catalogs": ["core", "backend", "concurrency"], "model": "opus" },
-  { "lens": "data",        "agentType": "firm:architect", "catalogs": ["core", "data"],                   "model": "opus" },
-  { "lens": "algo",        "agentType": "firm:architect", "catalogs": ["core", "algo"],                   "model": "opus" },
-  { "lens": "integration", "agentType": "firm:architect", "catalogs": ["core", "integration", "concurrency"], "model": "opus" }
-]

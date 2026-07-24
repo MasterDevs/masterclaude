@@ -1,18 +1,18 @@
 ---
 name: feature
-description: "Run the firm feature pipeline on a brief: bootstrap the Playbook, scout + architect a plan, stop for your approval, then build with model-routed engineers, a triggered review panel, a bounded fix loop, and a final integrate-and-verify pass. Invoke as /firm:feature <brief>."
+description: "Run the masterdevs feature pipeline on a brief: bootstrap the Playbook, scout + architect a plan, stop for your approval, then build with model-routed engineers, a triggered review panel, a bounded fix loop, and a final integrate-and-verify pass. Invoke as /masterdevs:feature <brief>."
 ---
 
-# /firm:feature — orchestrated feature development
+# /masterdevs:feature — orchestrated feature development
 
-You are running the firm feature pipeline. The user's brief follows the command. Work through these steps in order. Report **outcome first** (per the user's communication rules), demoting mechanism to supporting detail.
+You are running the masterdevs feature pipeline. The user's brief follows the command. Work through these steps in order. Report **outcome first** (per the user's communication rules), demoting mechanism to supporting detail.
 
 ## Step 0 — Resolve paths (do this first)
 
 - `PLUGIN_ROOT` = `${CLAUDE_PLUGIN_ROOT}` (this plugin's cache dir — read-only seeds; wiped on update).
-- `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back** to `~/.claude/plugins/data/firm/` (create it). All mutable state lives here — never write learned data under `PLUGIN_ROOT`.
+- `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back** to `~/.claude/plugins/data/masterdevs/` (create it). All mutable state lives here — never write learned data under `PLUGIN_ROOT`.
 - `PLAYBOOK_DIR` = `$DATA_DIR/playbook`
-- `PLAN_PATH` = an absolute path in the current repo, e.g. `$(pwd)/.firm/PLAN.md` (create `.firm/` if needed; suggest the user gitignore it).
+- `PLAN_PATH` = an absolute path in the current repo, e.g. `$(pwd)/.masterdevs/PLAN.md` (create `.masterdevs/` if needed; suggest the user gitignore it).
 - `ROSTER_PATH` = `$PLAYBOOK_DIR/rosters/reviewers.json`
 
 ## Step 1 — Bootstrap / merge the Playbook (state model §3)
@@ -60,6 +60,6 @@ Lead with the bottom line: did it land clean, and what's the state of the code. 
 - Per-subtask: passed / unresolved-findings / blocked, with the model that ran it.
 - **Unresolved findings** surfaced verbatim — never silently dropped; these need a human.
 - Integration: merged? tests passed? acceptance met? Any combined-diff duplication found.
-- Note that pattern/lesson **candidates** were staged (not promoted) and can be reviewed with `/firm:playbook`.
+- Note that pattern/lesson **candidates** were staged (not promoted) and can be reviewed with `/masterdevs:playbook`.
 
 Distinguish confirmed results (tests ran, here's the output) from anything uncertain. If the build did not land clean, say so plainly and state the next step.

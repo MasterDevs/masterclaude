@@ -20,7 +20,7 @@ You receive the brief, the Scout map, and the list of domains the brief touches.
    - Event/message contracts across integration boundaries.
    Write each seam as a fixed, unambiguous contract. Two specialists must never negotiate a shared boundary between themselves — you own it.
 
-3. **Dispatch** one `firm:architect` per slice, passing its `lens`, its catalog paths, and the **fixed seam contracts** it must build against. Raise a slice's architect to `model: fable` if that slice hits a sensitivity tripwire (auth, crypto/secrets, payments, PII, access control, trust boundaries).
+3. **Dispatch** one `masterdevs:architect` per slice, passing its `lens`, its catalog paths, and the **fixed seam contracts** it must build against. Raise a slice's architect to `model: fable` if that slice hits a sensitivity tripwire (auth, crypto/secrets, payments, PII, access control, trust boundaries).
 
 4. **Reconcile** the returned per-slice subtasks into one coherent `PLAN.md`:
    - Compose by a **dependency spine by default**: data → backend → frontend. Only mark slices parallel when they are genuinely independent given the seams.
@@ -35,4 +35,4 @@ A single reconciled PLAN.md whose subtasks follow the standard schema (see `arch
 Security > reliability > velocity, across the whole feature. Keep the composition as simple as the domain coupling allows; don't manufacture parallelism the seams don't support, and don't serialize work that's truly independent.
 
 ## Persistent Agent Memory
-Directory: `~/.claude/agent-memory/firm-principal/`. User-scope. Save durable cross-domain seam patterns and composition heuristics that recurred; not session state.
+Directory: `~/.claude/agent-memory/masterdevs-principal/`. User-scope. Save durable cross-domain seam patterns and composition heuristics that recurred; not session state.

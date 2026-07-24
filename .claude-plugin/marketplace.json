@@ -9,8 +9,8 @@
   },
   "plugins": [
     {
-      "name": "firm",
-      "source": "./plugins/firm",
+      "name": "masterdevs",
+      "source": "./plugins/masterdevs",
       "description": "Orchestrated feature pipeline: Scout → Architect → model-routed Engineers → extensible Review Panel → fix loop → integrate, over a self-learning design-pattern Playbook."
     }
   ]
