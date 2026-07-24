@@ -2,7 +2,8 @@ export const meta = {
   name: 'masterdevs-feature-plan',
   description: 'Phase 1: scout the affected subsystems, then architect a PLAN.md of model-routed, review-lensed subtasks. Stops for human approval before any code is written.',
   phases: [
-    { title: 'Scout', detail: 'read-only map of affected subsystems' },
+    // Scout is entered dynamically only when it runs (skipped for small tier),
+    // so a skipped Scout never shows as a phantom "not started" phase.
     { title: 'Architect', detail: 'decompose into subtasks; escalate to Principal if multi-domain' },
     { title: 'Write plan', detail: 'render PLAN.md for human approval' },
   ],
@@ -117,10 +118,10 @@ The Playbook lives at: ${playbookDir}
 - External reviewer memory (defensive read; may be absent): ~/.claude/agent-memory/eng-skills-pr-reviewer/
 Catalog rows are detection recipes: match "Reach for when" against real code, honor "Skip when".`
 
-// ── Phase: Scout ──────────────────────────────────────────────────────────
-phase('Scout')
+// ── Phase: Scout (only when the brief warrants it) ─────────────────────────
 let scout = null
 if (tier !== 'small') {
+  phase('Scout')
   scout = await agent(
     `You are a read-only Scout. Map the subsystems this feature will touch. DO NOT modify any files.\n\n` +
     `Feature brief:\n${brief}\n\n` +
