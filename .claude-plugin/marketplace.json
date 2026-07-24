@@ -1,0 +1,17 @@
+{
+  "name": "masterclaude",
+  "owner": {
+    "name": "Kevin Prudente"
+  },
+  "metadata": {
+    "description": "Multi-agent feature-development pipeline for Claude Code — plan, build, review, and learn.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "firm",
+      "source": "./plugins/firm",
+      "description": "Orchestrated feature pipeline: Scout → Architect → model-routed Engineers → extensible Review Panel → fix loop → integrate, over a self-learning design-pattern Playbook."
+    }
+  ]
+}

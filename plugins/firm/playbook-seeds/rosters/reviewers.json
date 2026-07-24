@@ -1,0 +1,39 @@
+[
+  {
+    "name": "correctness",
+    "lens": "correctness",
+    "agentType": "eng-skills:pr-reviewer",
+    "fallbackAgentType": "firm:engineer-as-reviewer-prompt",
+    "model": "opus",
+    "triggers": { "always": true },
+    "lessonsLane": "correctness"
+  },
+  {
+    "name": "security",
+    "lens": "security",
+    "agentType": "firm:security-reviewer",
+    "model": "fable",
+    "triggers": {
+      "lenses": ["backend", "data", "integration"],
+      "globs": ["**/auth*/**", "**/payment*/**", "**/*secret*", "**/crypto/**"],
+      "sensitiveTier": true
+    },
+    "lessonsLane": "security"
+  },
+  {
+    "name": "performance",
+    "lens": "performance",
+    "agentType": "firm:perf-reviewer",
+    "model": "opus",
+    "triggers": { "lenses": ["backend", "data", "algo"] },
+    "lessonsLane": "perf"
+  },
+  {
+    "name": "frontend-design",
+    "lens": "frontend",
+    "agentType": "firm:design-reviewer",
+    "model": "opus",
+    "triggers": { "globs": ["**/*.tsx", "**/*.vue", "**/components/**", "**/*.css"] },
+    "lessonsLane": "frontend"
+  }
+]
