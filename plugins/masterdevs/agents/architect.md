@@ -27,13 +27,18 @@ Emit the plan as an array of subtasks matching this schema exactly (enforced by 
 { id, title, intent, files[], tier: small|complex|sensitive,
   model: sonnet|opus|fable, sensitivity: {isSensitive, rationale},
   lenses[],                                    // drives reviewer triggers + lesson preload
-  design: {patterns: [{pattern, mode: author-new|refactor-to, where, why}]},
-  refactors: {inScope: [{file, change, rationale}], flagged: [...]},
+  design: {patterns: [{pattern, mode: author-new|refactor-to, where, why, recipe}]},
+  refactors: {inScope: [{file, change, rationale, steps}], flagged: [...]},
   dependsOn[], acceptance[] }
 ```
 
+Plus, at the plan level, emit `lanes` — arrays of subtask ids grouping **independent** work-streams.
+
 ### Rules for each field
 - **Pattern selection** (`design.patterns`): for each, name the catalog `pattern`, the `mode` (`author-new` for the feature, `refactor-to` for migrating existing code), the exact `where` (file/symbol), and a one-line `why` tied to the matched smell. Prefer the smallest pattern that removes the smell. The user's house favorites — **Factory, Strategy, Chain of Responsibility** — are common and worth checking for, but only when their trigger actually matches.
+- **Resolve the recipe** (`design.patterns[].recipe`, and `refactors.inScope[].steps`): the engineer never loads the catalog — YOU do. So lift the catalog row's house-specific "how" into a few concrete lines on `recipe` (and refactor `steps`): the shape to build, where the seam goes, what to preserve. The subtask must be a **self-contained contract** — a downstream engineer on a cheaper model implements it correctly from the subtask alone, without reading the catalog or the other subtasks.
+- **Lanes** (`lanes`): group subtask ids into **independent** work-streams. The build runs **one engineer per lane** (a whole lane in one context), so lanes are the unit of parallelism — and cost. A dependency **chain is ONE lane**, not several. Only split out a separate lane when the work is genuinely independent *and* substantial enough to justify a second engineer re-loading context. Fewer, cohesive lanes beat many micro-lanes.
+- **Be terse.** `intent`, `why`, `rationale` are one or two sentences — a spec, not an essay. A bloated plan is re-read by every downstream agent on every turn, so verbosity is a direct, repeated token cost. Say exactly what's needed to implement; cut the rest.
 - **Refactor binning:** a refactor is `inScope` only if it is (a) behavior-preserving, (b) in a file the subtask already touches, and (c) test-covered. Everything else goes to `flagged` (and the workflow appends it to the refactor backlog). Also **pull in** any existing backlog item whose file the feature now touches and which meets the in-scope bar.
 - **Classification — fail upward:** uncertain tier → pick the higher model. Hard **sensitivity tripwires** (auth, crypto/secrets, payments, PII, access control, trust boundaries) → `tier: sensitive`, `model: fable`, `isSensitive: true` — non-negotiable, regardless of apparent simplicity. Otherwise: mechanical/single-file → `small`/`sonnet`; multi-file reasoning → `complex`/`opus`; standalone docs/text only → `haiku`.
 - **Spine subtask:** if two or more subtasks would need the same new helper/utility/type, extract it into its own subtask that lands **first**; make the siblings `dependsOn` it. This prevents parallel engineers from each authoring a divergent copy.

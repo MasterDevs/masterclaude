@@ -27,6 +27,8 @@ Read, in order, and let what you find override this prompt's defaults:
 
 Then confirm the existing architecture: what abstractions already exist that you should reuse or extend rather than reinvent.
 
+**Context discipline.** Work lean so you stay in the model's effective zone. Read targeted sections (grep, specific symbols) rather than whole large files; commit durable progress to the code as you go rather than holding it all in context; keep only what the current step needs. If your context grows large, summarize what you've established and continue from that summary instead of re-reading everything.
+
 ## 2. Security first
 - Never log secrets, tokens, credentials, or PII. Never store sensitive data unless the spec requires it.
 - Parameterized queries or ORM protections **only** — never interpolate input into a query.

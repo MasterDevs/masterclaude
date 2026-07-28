@@ -1,71 +1,74 @@
 ---
 name: feature
-description: "Run the masterdevs feature pipeline on a brief: bootstrap the Playbook, scout + architect a plan, stop for your approval, then build with model-routed engineers, a triggered review panel, a bounded fix loop, and a final integrate-and-verify pass. Invoke as /masterdevs:feature <brief>."
+description: "Run the masterdevs feature loop on a brief: bootstrap the Playbook, then one RPI-style loop in a single worktree — Refine → Plan (stop for your approval) → Implement → Refactor → Verify → Review → Iterate — pausing only for blocking questions or plan-conflicts. Invoke as /masterdevs:feature <brief>."
 ---
 
 # /masterdevs:feature — orchestrated feature development
 
-You are running the masterdevs feature pipeline. The user's brief follows the command. Work through these steps in order. Report **outcome first** (per the user's communication rules), demoting mechanism to supporting detail.
+You are running the masterdevs feature loop. The user's brief follows the command. Work through these steps in order. Report **outcome first** (per the user's communication rules), demoting mechanism to supporting detail.
+
+The engine is a single RPI-style loop in one worktree — **Refine → Plan → Implement → Refactor → Verify → Review → Iterate** — where each phase runs in a fresh context seeded by the prior phase's terse artifact, so context stays small and cheap. It runs **autonomously**: it stops only when Refine has a blocking question, when Iterate surfaces a plan-conflict, or when it finishes.
 
 ## Step 0 — Resolve paths (do this first)
 
 - `PLUGIN_ROOT` = `${CLAUDE_PLUGIN_ROOT}` (this plugin's cache dir — read-only seeds; wiped on update).
 - `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back** to `~/.claude/plugins/data/masterdevs-masterclaude/` (the `<plugin>-<marketplace>` id; create it). All mutable state lives here — never write learned data under `PLUGIN_ROOT`.
 - `PLAYBOOK_DIR` = `$DATA_DIR/playbook`
-- `PLAN_PATH` = a **unique-per-run** absolute path under the plugin data dir, so plans never land inside the user's repo (no gitignore needed) and two runs never clobber each other's plan. Build it as `$DATA_DIR/plans/<repo-slug>/<run-id>.md`, where `<repo-slug>` is the basename of the git toplevel (`git rev-parse --show-toplevel`, falling back to `$(pwd)`) and `<run-id>` is a fresh identifier you generate **now** — a timestamp plus a short random suffix (e.g. `20260724-143512-a3f9`), optionally prefixed with a short kebab slug of the brief. Create `$DATA_DIR/plans/<repo-slug>/` if needed. **Reuse this exact same `PLAN_PATH` for BOTH the plan (Step 3) and build (Step 5) workflow calls** — it is the handoff between the two phases, so the build always reads the plan its own run produced. The path is outside the repo, so surface the absolute `PLAN_PATH` when you present the plan (Step 4) so the user can find and edit it.
 - `ROSTER_PATH` = `$PLAYBOOK_DIR/rosters/reviewers.json`
+- `RUN_DIR` = a **unique-per-run** scratch dir for this run's human-readable artifacts (requirements + plan), outside the user's repo so nothing needs gitignoring. Build it as `$DATA_DIR/runs/<repo-slug>/<run-id>/`, where `<repo-slug>` is the basename of the git toplevel (`git rev-parse --show-toplevel`, falling back to `$(pwd)`) and `<run-id>` is a fresh identifier you generate **now** — a timestamp plus a short random suffix (e.g. `20260724-143512-a3f9`), optionally prefixed with a short kebab slug of the brief. Create it.
 
-> Parallel-run note: `PLAN_PATH` is now per-run, so concurrent runs in one repo are safe with respect to their plans. The Playbook under `$DATA_DIR` is still shared across all runs on this machine (that's intentional — it's the cross-run learning), and candidate/lesson **writes there are not locked**, so avoid two runs racing to promote/stage at the exact same moment.
+> The Playbook under `$DATA_DIR` is shared across all runs on this machine (that's intentional — it's the cross-run learning), and candidate/lesson **writes there are not locked**, so avoid two runs racing to promote/stage at the exact same moment.
 
-## Step 1 — Bootstrap / merge the Playbook (state model §3)
+## Step 1 — Bootstrap / merge the Playbook
 
 1. If `$PLAYBOOK_DIR` does **not** exist: copy the shipped seeds wholesale —
    `cp -R "$PLUGIN_ROOT/playbook-seeds/" "$PLAYBOOK_DIR"` — then write `$PLAYBOOK_DIR/SEED_VERSION` with the contents of `$PLUGIN_ROOT/playbook-seeds/VERSION`.
 2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` < shipped `VERSION`: **merge, don't clobber.** For each seed `catalog.md`/roster, add only entries whose pattern/name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
 3. Ensure candidate staging files exist (create empty with headers if missing): `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
 
-## Step 2 — Classify tier (routing)
+## Step 2 — Refine + Plan (first call, stops for approval)
 
-Quick-read the brief. If it is clearly a single small/mechanical change, set `tier: "small"` (skips Scout and the approval gate, routes to sonnet, correctness-only review). Otherwise leave tier unset — the Architect classifies per subtask, failing upward.
-
-## Step 3 — Plan (workflow, phase 1)
-
-Invoke the planning workflow (scripts ship as plain files — call by path). **Pass `args` as a real JSON object, never as a stringified/escaped blob** — a stringified value reaches the script as one string and the run fails immediately:
+The workflow ships as a plain file — call it by path. It runs in the **current worktree**, so invoke `/masterdevs:feature` from the feature's worktree/branch. **Pass `args` as a real JSON object, never a stringified/escaped blob** (a stringified value reaches the script as one string and the run fails). Substitute resolved absolute paths (no `<...>` placeholders or literal `$VARS`):
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-plan.js",
-  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", planPath: "<PLAN_PATH>", tier: "<small|unset>" }
+  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-loop.js",
+  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>" }
 })
 ```
 
-Substitute the resolved absolute paths into the values (do not leave `<...>` placeholders or literal `$VARS`).
+This first call runs **Refine → Plan**, then **stops**. It returns either:
+- `{outcome: "needs-clarification", openQuestions, requirementsPath}` — Refine hit a blocking ambiguity/contradiction. **Stop and ask the user** the questions; when answered, re-run this call with the answers folded into the brief.
+- `{outcome: "awaiting-plan-approval", summary, stepCount, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
 
-It returns `{summary, domains, subtaskCount, planPath, needsApproval}`.
+## Step 3 — Plan approval gate (STOP)
 
-## Step 4 — Approval gate (STOP here if needsApproval)
+Read `planPath` (and `requirementsPath` for context). Summarize the plan — the design approach, the steps, the resolved patterns, and the success criteria Verify will check — and ask the user to **approve, edit, or reject**. Human edits to `plan.md` win (the next call re-reads the file, so their edits are authoritative). Do not proceed until approved.
 
-If `needsApproval` is true: **stop and present the plan.** Read `PLAN_PATH`, summarize the decomposition — subtasks, tier/model routing, chosen patterns, in-scope vs. flagged refactors, and any security tripwires — and ask the user to approve, edit, or reject. If they edit, they edit `PLAN.md` directly (the build phase re-reads it, so their edits win). Do not proceed until approved. If `needsApproval` is false (small tier), continue.
+## Step 4 — Run the loop (second call, `startFrom: "implement"`)
 
-## Step 5 — Build (workflow, phase 2)
-
-Again, pass `args` as a real JSON object with the resolved absolute paths substituted in:
+On approval, resume into the Implement → Refactor → Verify → Review → Iterate loop with the **same `runDir`** (it loads the approved, possibly-edited artifacts):
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-build.js",
-  args: { planPath: "<PLAN_PATH>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>" }
+  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-loop.js",
+  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>", startFrom: "implement" }
 })
 ```
 
-It returns per-subtask outcomes, unresolved findings, and the integration result.
+It returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`. Two of these need you mid-flight:
+- **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and left them for a human. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief.
+- **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
-## Step 6 — Report (outcome first)
+## Step 5 — Report (outcome first)
 
-Lead with the bottom line: did it land clean, and what's the state of the code. Then:
-- Per-subtask: passed / unresolved-findings / blocked, with the model that ran it.
-- **Unresolved findings** surfaced verbatim — never silently dropped; these need a human.
-- Integration: merged? tests passed? acceptance met? Any combined-diff duplication found.
-- Note that pattern/lesson **candidates** were staged (not promoted) and can be reviewed with `/masterdevs:playbook`.
+Lead with the bottom line: did it land clean (`outcome: "passed"`), and what's the state of the code. Then:
+- **Verify:** passed or not, against which success criteria; any steps it declined to run (`verifyNeedsApproval`).
+- **Review:** any `unresolvedBlocking` (high/critical) findings still open after the cap — surfaced verbatim; these need a human.
+- **Conflicts:** anything left for the user to decide.
+- **Deferred:** what was intentionally **not** addressed and why (record it plainly — this is a deliberate decision, not a silent drop).
+- **Iterations:** how many loop passes ran. Point the user at `requirementsPath` / `planPath` for the artifacts.
+- Note pattern/lesson **candidates** were staged (not promoted) — reviewable with `/masterdevs:playbook`.
+- If `outputTokens` is present, report it as a rough cost signal.
 
-Distinguish confirmed results (tests ran, here's the output) from anything uncertain. If the build did not land clean, say so plainly and state the next step.
+Distinguish confirmed results (tests ran, here's the output) from anything uncertain. If it did not land clean, say so plainly and state the next step.
