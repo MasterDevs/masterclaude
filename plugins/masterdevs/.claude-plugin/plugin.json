@@ -1,6 +1,6 @@
 {
   "name": "masterdevs",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Orchestrated feature pipeline: Scout → Architect → model-routed Engineers → extensible Review Panel → fix loop → integrate, over a self-learning design-pattern Playbook. Priority hierarchy: security > reliability > velocity.",
   "author": {
     "name": "Kevin Prudente"

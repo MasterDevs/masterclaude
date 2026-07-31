@@ -45,18 +45,28 @@ This first call runs **Refine → Plan**, then **stops**. It returns either:
 
 Read `planPath` (and `requirementsPath` for context). Summarize the plan — the design approach, the steps, the resolved patterns, and the success criteria Verify will check — and ask the user to **approve, edit, or reject**. Human edits to `plan.md` win (the next call re-reads the file, so their edits are authoritative). Do not proceed until approved.
 
-## Step 4 — Run the loop (second call, `startFrom: "implement"`)
+## Step 4 — Run the loop (second call, `startFrom: "implement"`) with 5-minute status updates
 
-On approval, resume into the Implement → Refactor → Verify → Review → Iterate loop with the **same `runDir`** (it loads the approved, possibly-edited artifacts):
+On approval, resume into the Implement → Refactor → Verify → Review → Iterate loop with the **same `runDir`** (it loads the approved, possibly-edited artifacts). Run it **in the background** so this session can post progress while it works:
 
 ```
 Workflow({
   scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-loop.js",
-  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>", startFrom: "implement" }
+  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>", startFrom: "implement" },
+  run_in_background: true
 })
 ```
 
-It returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`. Two of these need you mid-flight:
+The call returns a **run id** immediately. **Post a status line to this chat every ~5 minutes while the loop runs** — this cadence is a deliberate user requirement, not completion-polling:
+
+1. Record the start time and the run id.
+2. Schedule the next check ~5 minutes out with `ScheduleWakeup` (`delaySeconds: 300`, a `reason` like "masterdevs 5-min status update", and a `prompt` that re-enters this status step for this run id).
+3. On each wakeup, read the run's **live progress** — via its task status, or its state file at `~/.claude/projects/<encoded-cwd>/<session>/workflows/<runId>.json` (fields `status`, `phases`, `workflowProgress`, `agentCount`, `startTime`) — and post **one concise line** to the chat, e.g. `⏳ masterdevs: Verify (iteration 2/3) · 3 agents run · 11 min elapsed`. Then re-schedule (step 2).
+4. When the run's `status` is no longer running (`completed`/`killed`) **or** its completion notification arrives, **stop the heartbeat** (`ScheduleWakeup` with `stop: true`) and go to Step 5.
+
+If this session is closed, the 5-minute posts stop but the run keeps going — catch up via `/workflows` or the completion notification. (The quick Refine+Plan call and the approval gate are **not** wrapped in this heartbeat — only this long loop is.)
+
+When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, two fields need you mid-flight:
 - **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and left them for a human. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
