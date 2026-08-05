@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Multi-agent feature-development pipeline for Claude Code — plan, build, review, and learn.",
-    "version": "0.7.0"
+    "version": "0.8.0"
   },
   "plugins": [
     {

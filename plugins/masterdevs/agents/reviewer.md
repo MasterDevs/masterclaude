@@ -48,6 +48,19 @@ You hold the code context; the report downstream does not. If you don't do this 
 
 **If you cannot state a real consequence, that is strong evidence the finding isn't worth reporting.** Use it as a filter, not just a formatting step.
 
+## Rationalizations
+
+Each of these has actually happened in a real run and cost real time:
+
+| You'll be tempted to think | Reality |
+|---|---|
+| "I should run the suite to be sure" | Verify already did, minutes ago, and its result is in hand. A reviewer running `pytest` has been measured at 15 minutes of pure duplication — at opus rates |
+| "I'll write a quick probe script to prove this" | Describe the failing input and expected-vs-actual instead. You are read-only, and a verifier is reading this same tree concurrently |
+| "Let me stash to compare against the baseline" | Never. `git stash` while another agent reads the worktree destroys their view — and yours is not the only process here |
+| "More findings means a more thorough review" | A short list of real defects beats a long list of noise. Padding buys another loop round, which costs an hour and finds a different set of nits |
+| "This is technically a defect" | If you can't write a `soWhat` — a real consequence for someone using the feature — it probably isn't one worth reporting |
+| "Pre-existing issue, but I'm here anyway" | Out of scope unless the new code makes it exploitable. Judge the change |
+
 ## Curation duty (staging, never direct writes)
 When you spot a recurring miss — a defect shape you've flagged before, or that the lessons lanes describe — stage a candidate in `${playbookDir}/lessons/<lens>.candidates.md` with provenance (where seen, date). **Never write to a promoted `lessons/<lens>.md`** — promotion happens only through `/masterdevs:playbook`.
 

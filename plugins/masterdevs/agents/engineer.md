@@ -74,7 +74,20 @@ The user front-loaded an interview and approved a plan specifically so they coul
 
 The old instruction here was "STOP and report back" on any plan-reality mismatch. That was too blunt: it turned every surprise into a halt. Escalate-and-continue is the norm; blocking is the exception.
 
-## 9. Self-verification checklist (before returning)
+## 9. Rationalizations
+
+Each of these has actually happened in a real run and cost real time:
+
+| You'll be tempted to think | Reality |
+|---|---|
+| "The plan is wrong here, so I should stop and report" | Escalate **and keep going** if there's a defensible path. Halting costs the user a context switch; a recorded escalation costs nothing. Blocking is for genuine dead ends |
+| "Let me find the plan file to check my scope" | There is no plan file. Your scope is inlined in your prompt. A filesystem search for `PLAN.md` is wasted turns — this has been observed searching from `/` |
+| "This refactor is right there, it'd take a second" | `punted` it. Out-of-scope edits are what make a diff unreviewable, and the punt list is read |
+| "I should ask whether they want X or Y" | Settled before this run started. Implement what the requirements say |
+| "I'll note the surprise in `notes`" | `notes` is a breadcrumb for the next agent. A surprise the user should know about goes in `escalations`, or it won't reach them |
+| "Tests after, once it works" | Tests are part of the step, not a follow-up. The step isn't done without them |
+
+## 10. Self-verification checklist (before returning)
 - [ ] No secrets/PII logged or stored unnecessarily; queries parameterized; no homegrown crypto.
 - [ ] All external input validated at boundaries; external responses validated before use.
 - [ ] Functions do one thing at one level; seams only at real boundaries; dependencies point inward.

@@ -1,6 +1,6 @@
 ---
 name: feature
-description: "Run the masterdevs feature loop on a brief: bootstrap the Playbook, then one RPI-style loop in a single worktree — Refine → Plan (stop for your approval) → Implement → Refactor → Verify → Review → Iterate — pausing only for blocking questions or plan-conflicts. Invoke as /masterdevs:feature <brief>."
+description: "Run the full masterdevs feature loop on a brief: interview you until the intent is settled, plan it (stop for your approval), then build unattended — Implement → Refactor → Verify ∥ Review → Iterate → Polish — in a single worktree, stopping only for a dead end or a plan-conflict. Invoke as /masterdevs:feature <brief>. For one phase on its own, use /masterdevs:refine, /masterdevs:plan, or /masterdevs:review."
 ---
 
 # /masterdevs:feature — orchestrated feature development
@@ -28,50 +28,9 @@ The engine is a single RPI-style loop in one worktree — **Refine → Plan → 
 
 ## Step 2 — Interview the user until the intent is settled
 
-**This is the highest-leverage step in the whole command.** Everything after the plan gate runs unattended — that is the point of the tool. The user front-loads their attention here so they can go do other work while the agents build. So every question that is answerable *now* must be asked *now*: a question asked at minute 40 costs them a context switch, and a wrong assumption costs them the whole run.
+**This is the highest-leverage step in the whole command.** Read `${CLAUDE_PLUGIN_ROOT}/references/interview.md` and follow it. It is the shared protocol — `/masterdevs:refine` runs the same one standalone.
 
-You are in the main session and can talk to the user. The workflow's agents cannot. Use that.
-
-### When to skip
-
-Skip the interview and go straight to Step 3 when the brief is already self-contained — you can state the outcome, who it's for, what success looks like, and what's out of scope in one sentence each, with **~95% confidence**. Mechanical work ("rename X to Y across the repo") and briefs the user has already spec'd out qualify. Say you're skipping and why, in one line, so they can stop you.
-
-Otherwise, interview.
-
-### How to interview
-
-1. **Open with a hypothesis and a confidence number.**
-   ```
-   HYPOTHESIS: <your best one-sentence reading of what they want>
-   CONFIDENCE: ~30% — missing: <what's unresolved>
-   ```
-   Below ~70%, say what's unresolved. This shows them exactly what the interview needs to close.
-
-2. **Ask one question at a time, each carrying your guess.**
-   ```
-   Q: <one focused question>
-   GUESS: <your hypothesis for the answer, and why>
-   ```
-   Wait for the answer before the next question. One at a time, not batched — later questions depend on earlier answers, and people correct a wrong guess far faster than they compose an answer from nothing. Attaching your guess is what makes that work; it also exposes your assumptions while they're still cheap to fix.
-
-3. **Probe convention-signalling.** When you hear "it should be scalable", "the standard approach", "I should probably…" — that's deference to norms, not a requirement. Ask: *"If you didn't have to justify this to anyone, what would you actually want?"*
-
-4. **Stop at ~95% confidence.** The test is checkable, not a vibe: **can you predict the user's reaction to the next three questions you would ask?** If yes, stop and restate. If no, ask the next one.
-
-5. **Restate for line-by-line confirmation.**
-   ```
-   - Outcome:      <one line>
-   - User:         <one line — who benefits>
-   - Why now:      <one line — what changed>
-   - Success:      <one line — how we'll know it worked>
-   - Constraint:   <one line — the binding limit>
-   - Out of scope: <one line — what we are explicitly NOT doing>
-
-   Yes / no / refine?
-   ```
-   **The "Out of scope" line is not optional.** Most late-breaking conflicts are silent disagreement about what wasn't being built — and under this design those conflicts surface hours later, after the run has gone dark.
-
-6. **Take explicit yes only.** "Whatever you think" → re-ask as a choice between two concrete options. "Sounds good" → ask what they'd refine. Silence → ask what's missing. Loop until they actually confirm.
+In short: skip it only if the brief is already self-contained at ~95% confidence (say so in one line if you do); otherwise open with a hypothesis and a confidence number, ask one question at a time with your guess attached, stop when you can predict the answers to your next three questions, restate in six lines including an explicit **Out of scope**, and take only an explicit yes.
 
 Carry the confirmed six-field restate forward as `intent`.
 
@@ -137,39 +96,12 @@ When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyN
 
 ## Step 6 — Report
 
-The user spent an hour or two away from this. They come back to a wall of text about code they did not write and will not read. **Your job is to make the decisions obvious, not to summarize the work.**
+Read `${CLAUDE_PLUGIN_ROOT}/references/reporting.md` and follow it. That file owns the structure, the altitude rules, and the 25-line cap.
 
-Write the whole report in the vocabulary of the **confirmed intent from Step 2** — their Outcome, Success, and Constraint lines, in their nouns. You have that; use it. If a sentence's subject is a file, function, or symbol name, it is written at the wrong altitude.
+Feature-run specifics on top of it:
 
-Every item the agents returned carries a `soWhat`: one plain sentence about consequence, written by the agent that had the code open. **Lead with `soWhat`. Put `summary`, `file`, and `line` in a trailing clause or leave them out** — the user can ask.
-
-### Structure — exactly these three sections, in this order
-
-**1. The bottom line (1–2 sentences).** Did they get what they asked for? Frame it against their success criteria, not against `outcome: "passed"`. If something they explicitly asked for wasn't delivered, that goes here, not further down.
-
-**2. Needs you.** Only items where doing nothing has a cost. Each one gets:
-- what it means, in their words (the `soWhat`)
-- **your recommendation**
-- **what happens by default if they say nothing**
-
-If this section is empty, say so in one line — that's the win condition, not an omission.
-
-**3. For the record.** Everything else, **one line each**, no sub-bullets: polish applied, escalations the agents resolved themselves, punted items, deferred items, plan deviations. Close with *"ask if you want detail on any of these."* Resist expanding — the detail is available on request, and putting it here is what made the last report unreadable.
-
-Then one closing line of run stats: wall clock, agents, tokens, artifact path, and the **interruption count** (interview and plan gate included) — that last number is the metric this design optimizes, so it belongs in every report.
-
-### Rules
-
-- **Hard cap: 25 lines** before the stats line. If it doesn't fit, you are explaining rather than deciding — cut section 3, never section 2.
-- **Never ask a bare question.** "Want me to X or Y?" makes the user do the analysis. Ask with a recommendation and a default attached.
-- **Don't narrate the loop.** How many rounds ran, which agent found what, how the plan was revised — none of that changes a decision. One line in section 3 at most.
-- **Say which results are confirmed** (tests ran, here's the output) versus asserted.
-- Note that pattern/lesson **candidates** were staged, not promoted — one clause, reviewable with `/masterdevs:playbook`.
-
-### The altitude test
-
-> ❌ The reviewer flagged high (performance lens): `recompute_los_bucket_variants`' sweep matches only the registry prefix of the envelope stamp, not the per-deal values fingerprint.
->
-> ✅ Editing a severance rate makes that deal recalculate from scratch on every view, permanently — no wrong numbers, just slow. *Recommend: follow-up ticket, don't hold the PR.*
-
-Same finding. The second one can be acted on without opening the diff.
+- **Bottom line** is framed against the success criteria from the confirmed intent — not against `outcome: "passed"`.
+- **Needs you** draws from `conflicts`, `escalations`, `verifyNeedsApproval`, and `unresolvedBlocking`. Each gets a recommendation and a stated default.
+- **For the record** covers `polishApplied` (say plainly: regression-checked, **not** re-reviewed — that trade is deliberate), `punted` (the backlog this run generated), `deferred`, and any escalations the agents resolved themselves. One line each.
+- **Stats line:** wall clock, agents, `outputTokens`, artifact paths (`requirementsPath` / `planPath`), and the **interruption count** for this feature — interview and plan gate included. That last number is the metric this design optimizes, so it belongs in every report.
+- Note pattern/lesson **candidates** were staged, not promoted — one clause, reviewable with `/masterdevs:playbook`.

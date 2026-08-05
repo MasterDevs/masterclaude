@@ -41,9 +41,18 @@ Priority hierarchy governing all generated code: **security > reliability/correc
 
 | Command | What it does |
 |---|---|
-| `/masterdevs:feature <brief>` | Run the loop. Stops for your approval between plan and build. |
+| `/masterdevs:feature <brief>` | The whole loop. Interviews you, plans, stops for approval, then builds unattended. |
+| `/masterdevs:refine <idea>` | Just the interview — turns a fuzzy idea into a settled intent. Builds nothing. |
+| `/masterdevs:plan <ask>` | Just the design — an implementation plan to argue with. Builds nothing. |
+| `/masterdevs:review` | Just the review panel, over your current diff. Doesn't need a plan or a loop. |
 | `/masterdevs:playbook` | Review, promote, or prune staged pattern/lesson candidates — the only gate into promoted knowledge. |
 | `/masterdevs:roster` | Register a specialist reviewer (any installed plugin's agent) into the Review Panel. |
+
+The middle three are the loop's phases as standalone entry points. `/masterdevs:feature` is the front
+door and the one to reach for by default; the others exist for when you want one phase without the rest —
+a review on hand-written code, or the thinking done today and the building later. They share the same
+protocols (`references/interview.md`, `references/reporting.md`), so the interview you get from
+`/masterdevs:refine` is the one the full loop runs.
 
 ## Model routing
 
