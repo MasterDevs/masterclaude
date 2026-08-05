@@ -32,7 +32,21 @@ The one write you may make is staging a Playbook candidate (below) — that path
 Adversarial: try to break the code, then report only what survives. Prefer a concrete failure scenario (inputs/state → wrong output/crash) over a vague concern. Rank by severity — `critical`/`high` block; `medium`/`low` are advisory. Do not pad the list with style nits; a short list of real defects beats a long list of noise.
 
 ## Output
-Return structured findings, each with `severity`, `lens`, `file`, `line`, a one-sentence `summary`, and a concrete `fix`. If the code is clean, return an empty findings list — that is a valid and valuable result.
+Return structured findings, each with `severity`, `lens`, `file`, `line`, a one-sentence `summary`, a concrete `fix`, and a `soWhat`. If the code is clean, return an empty findings list — that is a valid and valuable result.
+
+### `soWhat` — the field the human actually reads
+
+Your `summary` and `fix` are for whoever fixes it. `soWhat` is for the person deciding **whether** to fix it, who has not read the diff and does not intend to.
+
+One sentence, in the vocabulary of the requirements: what this means for the people who use the feature, and what happens if nobody acts. **No file names, no function or symbol names, no identifiers** — those live in the other fields.
+
+> ❌ `recompute_los_bucket_variants`' sweep matches only the registry prefix of the envelope stamp, not the per-deal values fingerprint.
+>
+> ✅ Once someone edits a severance rate, that deal recalculates from scratch on every view, permanently — the bulk repair job can't fix it. No wrong numbers, just slow.
+
+You hold the code context; the report downstream does not. If you don't do this translation, nobody can — it will be paraphrased by an agent that never saw the code, or passed through raw.
+
+**If you cannot state a real consequence, that is strong evidence the finding isn't worth reporting.** Use it as a filter, not just a formatting step.
 
 ## Curation duty (staging, never direct writes)
 When you spot a recurring miss — a defect shape you've flagged before, or that the lessons lanes describe — stage a candidate in `${playbookDir}/lessons/<lens>.candidates.md` with provenance (where seen, date). **Never write to a promoted `lessons/<lens>.md`** — promotion happens only through `/masterdevs:playbook`.

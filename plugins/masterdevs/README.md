@@ -56,6 +56,24 @@ Routed per phase by what the phase actually demands:
 
 When a step crosses a sensitivity tripwire — auth, crypto/secrets, payments, PII, access control, trust boundaries — the Architect flags it in the plan so the engineer and reviewer both treat it as must-not-break.
 
+## The report you get back
+
+You were away for an hour. You come back to a decision, not a changelog.
+
+Every finding, escalation, and deferral carries a **`soWhat`** — one plain sentence written by the agent
+that had the code open, saying what it means and what happens if nobody acts. That translation has to
+happen where the code context is; the report step can only paraphrase what it's handed.
+
+> ❌ `recompute_los_bucket_variants`' sweep matches only the registry prefix of the envelope stamp.
+>
+> ✅ Editing a severance rate makes that deal recalculate from scratch on every view, permanently — no
+> wrong numbers, just slow. *Recommend: follow-up ticket, don't hold the PR.*
+
+The report is written in the vocabulary of the intent **you** confirmed in the interview, capped at 25
+lines, and structured as: the bottom line → what needs you (each with a recommendation and a default if
+you say nothing) → one line each for the record. If nothing needs you, it says so in a line — that's the
+win condition.
+
 ## Is it working?
 
 The design makes a falsifiable claim — front-loading your attention buys uninterrupted time without

@@ -135,19 +135,41 @@ When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyN
 - **`escalations` non-empty** — an agent hit something the plan didn't predict: a file not shaped as described, a missing dependency, an approach that would break existing behavior. If `outcome` is `blocked`, work stopped there. Otherwise the agent found a way forward and kept going — surface these anyway, since a human should confirm the path it chose.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
-## Step 6 — Report (outcome first)
+## Step 6 — Report
 
-Lead with the bottom line: did it land clean (`outcome: "passed"`), and what's the state of the code. Then:
-- **Verify:** passed or not, against which success criteria; any steps it declined to run (`verifyNeedsApproval`).
-- **Review:** any `unresolvedBlocking` (high/critical) findings still open after the cap — surfaced verbatim; these need a human.
-- **Conflicts:** anything left for the user to decide.
-- **Polish:** what `polishApplied` covers — medium/low revisions applied in one closing pass. Say plainly that these were regression-checked but **not** re-reviewed; that trade is deliberate.
-- **Escalations:** what surprised the agents mid-run, and what they did about it.
-- **Punted:** the small things agents noticed and moved past (`punted`). List them compactly — this is the backlog the run generated, and it's the payoff for not interrupting. Anything genuinely worth doing should become a ticket or a Playbook candidate.
-- **Deferred:** what was intentionally **not** addressed and why (record it plainly — this is a deliberate decision, not a silent drop).
-- **Iterations:** how many loop passes ran (1 or 2). Point the user at `requirementsPath` / `planPath` for the artifacts.
-- **Interruptions:** count how many times this feature required the user — interview and plan gate included. That number is the metric this design optimizes; report it so it can be tracked run over run.
-- Note pattern/lesson **candidates** were staged (not promoted) — reviewable with `/masterdevs:playbook`.
-- If `outputTokens` is present, report it as a rough cost signal.
+The user spent an hour or two away from this. They come back to a wall of text about code they did not write and will not read. **Your job is to make the decisions obvious, not to summarize the work.**
 
-Distinguish confirmed results (tests ran, here's the output) from anything uncertain. If it did not land clean, say so plainly and state the next step.
+Write the whole report in the vocabulary of the **confirmed intent from Step 2** — their Outcome, Success, and Constraint lines, in their nouns. You have that; use it. If a sentence's subject is a file, function, or symbol name, it is written at the wrong altitude.
+
+Every item the agents returned carries a `soWhat`: one plain sentence about consequence, written by the agent that had the code open. **Lead with `soWhat`. Put `summary`, `file`, and `line` in a trailing clause or leave them out** — the user can ask.
+
+### Structure — exactly these three sections, in this order
+
+**1. The bottom line (1–2 sentences).** Did they get what they asked for? Frame it against their success criteria, not against `outcome: "passed"`. If something they explicitly asked for wasn't delivered, that goes here, not further down.
+
+**2. Needs you.** Only items where doing nothing has a cost. Each one gets:
+- what it means, in their words (the `soWhat`)
+- **your recommendation**
+- **what happens by default if they say nothing**
+
+If this section is empty, say so in one line — that's the win condition, not an omission.
+
+**3. For the record.** Everything else, **one line each**, no sub-bullets: polish applied, escalations the agents resolved themselves, punted items, deferred items, plan deviations. Close with *"ask if you want detail on any of these."* Resist expanding — the detail is available on request, and putting it here is what made the last report unreadable.
+
+Then one closing line of run stats: wall clock, agents, tokens, artifact path, and the **interruption count** (interview and plan gate included) — that last number is the metric this design optimizes, so it belongs in every report.
+
+### Rules
+
+- **Hard cap: 25 lines** before the stats line. If it doesn't fit, you are explaining rather than deciding — cut section 3, never section 2.
+- **Never ask a bare question.** "Want me to X or Y?" makes the user do the analysis. Ask with a recommendation and a default attached.
+- **Don't narrate the loop.** How many rounds ran, which agent found what, how the plan was revised — none of that changes a decision. One line in section 3 at most.
+- **Say which results are confirmed** (tests ran, here's the output) versus asserted.
+- Note that pattern/lesson **candidates** were staged, not promoted — one clause, reviewable with `/masterdevs:playbook`.
+
+### The altitude test
+
+> ❌ The reviewer flagged high (performance lens): `recompute_los_bucket_variants`' sweep matches only the registry prefix of the envelope stamp, not the per-deal values fingerprint.
+>
+> ✅ Editing a severance rate makes that deal recalculate from scratch on every view, permanently — no wrong numbers, just slow. *Recommend: follow-up ticket, don't hold the PR.*
+
+Same finding. The second one can be acted on without opening the diff.

@@ -100,9 +100,21 @@ const PLAN_SCHEMA = {
 //                 status="blocked" it stops the run outright.
 //   punted      — small, out of scope, recorded and moved past. NEVER stops the run, never asks.
 // Scope questions are NOT valid escalations: those were settled in the interview before the run went dark.
+// The report the user reads is written from these fields, and they are the only place the code context
+// exists. An agent that says "the sweep matches only the registry prefix of the envelope stamp" has
+// answered a question the user never asked. `soWhat` forces the translation here, where it can be done
+// correctly — the report step downstream can only paraphrase what it is given.
+const SO_WHAT = { type: 'string' }
+const SO_WHAT_RULE =
+  `\`soWhat\` is ONE sentence, in the vocabulary of the requirements, saying what this means for the ` +
+  `people who use the feature and what happens if nobody acts. No file names, no function or symbol ` +
+  `names, no identifiers — those belong in the other fields. Write it for someone who has not read the ` +
+  `diff and does not intend to. If you cannot state a real consequence, that is a strong sign the item ` +
+  `is not worth reporting at all.`
+
 const ESCALATIONS = { type: 'array', items: {
-  type: 'object', additionalProperties: false, required: ['issue', 'why'],
-  properties: { issue: { type: 'string' }, why: { type: 'string' } },
+  type: 'object', additionalProperties: false, required: ['issue', 'why', 'soWhat'],
+  properties: { issue: { type: 'string' }, why: { type: 'string' }, soWhat: SO_WHAT },
 } }
 const PUNTED = { type: 'array', items: {
   type: 'object', additionalProperties: false, required: ['item', 'reason'],
@@ -150,12 +162,13 @@ const FINDINGS_SCHEMA = {
   properties: {
     findings: { type: 'array', items: {
       type: 'object', additionalProperties: false,
-      required: ['severity', 'lens', 'file', 'line', 'summary', 'fix'],
+      required: ['severity', 'lens', 'file', 'line', 'summary', 'fix', 'soWhat'],
       properties: {
         severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
         lens: { type: 'string' },                     // security | performance | design | correctness | ...
         file: { type: 'string' }, line: { type: 'integer' },
         summary: { type: 'string' }, fix: { type: 'string' },
+        soWhat: SO_WHAT,                              // plain-language consequence — see SO_WHAT_RULE
       },
     } },
   },
@@ -174,8 +187,8 @@ const ITERATE_SCHEMA = {
       properties: { finding: { type: 'string' }, conflictsWith: { type: 'string' } },
     } },
     deferred: { type: 'array', items: {                             // decided NOT to address (recorded)
-      type: 'object', additionalProperties: false, required: ['finding', 'reason'],
-      properties: { finding: { type: 'string' }, reason: { type: 'string' } },
+      type: 'object', additionalProperties: false, required: ['finding', 'reason', 'soWhat'],
+      properties: { finding: { type: 'string' }, reason: { type: 'string' }, soWhat: SO_WHAT },
     } },
   },
 }
@@ -202,7 +215,10 @@ const CHANNELS =
   `{issue, why}. If you found a defensible way forward, take it and keep status="done" — the escalation still ` +
   `surfaces at the end. Set status="blocked" ONLY if you genuinely cannot proceed.\n` +
   `Scope and preference questions are NOT escalations — those were settled with the user before this run ` +
-  `started. Do not stop to re-ask them; implement what the requirements say.`
+  `started. Do not stop to re-ask them; implement what the requirements say.\n` +
+  `Both channels are read by a person who has not seen your diff and will not read it. ${SO_WHAT_RULE}\n` +
+  `Write \`punted\` items the same way: what was left undone and why it does not matter yet, in feature ` +
+  `terms — not "extract a helper in <file>".`
 
 const CONTEXT_DISCIPLINE =
   `\n\nContext discipline: work lean. Read targeted sections (grep, specific symbols) rather than whole large ` +
@@ -419,9 +435,10 @@ while (iteration < MAX_ITERATIONS) {
     const out = await agent(
       `Review ONLY the new/changed code for this feature — security, performance, design/modularity, and ` +
       `correctness. ${reviewScope}\n` +
-      `Requirements (context):\n${refine.requirements}\n` +
+      `Requirements (context — and the vocabulary to write \`soWhat\` in):\n${refine.requirements}\n` +
       `Adversarial stance: report only defects that survive scrutiny. Stage any recurring-miss lesson to ` +
-      `${playbookDir}/lessons/<lens>.candidates.md (never a promoted lane). Return findings.` + readOnlyRule,
+      `${playbookDir}/lessons/<lens>.candidates.md (never a promoted lane). Return findings.\n\n` +
+      SO_WHAT_RULE + readOnlyRule,
       { label: `review:${r.name}:${iteration}`, phase: 'Review', agentType: r.agentType, model: r.model, schema: FINDINGS_SCHEMA }
     )
     return (out && out.findings) ? out.findings : []
@@ -467,11 +484,15 @@ while (iteration < MAX_ITERATIONS) {
     `- \`mustFix\` — revisions that come from a critical/high finding or a verify failure. ONLY these justify ` +
     `another full round; be strict, and leave this empty if nothing rises to that bar.\n` +
     `- \`polish\` — in-scope medium/low revisions worth making but NOT worth another review round. They are ` +
-    `batched and applied once at the end without re-review, so each must be safe to apply unsupervised.\n` +
+    `batched and applied once at the end without re-review, so each must be safe to apply unsupervised. ` +
+    `Write each one so it reads as a fix to the FEATURE, not to a line of code — the user sees these.\n` +
     `- \`conflicts\` — anything that clashes with the requirements or plan. The USER decides these; do not action ` +
     `them. Surfacing one stops the loop, so only put a genuine requirement/plan clash here.\n` +
     `- \`deferred\` — not worth addressing at all, with a reason.\n` +
-    `decision="continue" only if \`mustFix\` is non-empty or verify failed, AND iterations remain; else "stop".`,
+    `decision="continue" only if \`mustFix\` is non-empty or verify failed, AND iterations remain; else "stop".\n\n` +
+    `The findings you are given were written by a reviewer reading code; the user reading your output was ` +
+    `not. Carry each finding's \`soWhat\` forward rather than its \`summary\`, and phrase every item in the ` +
+    `requirements' vocabulary.\n${SO_WHAT_RULE}`,
     { label: `iterate:${iteration}`, phase: 'Iterate', agentType: 'general-purpose', model: 'sonnet', schema: ITERATE_SCHEMA }
   )
   if (!iter) break

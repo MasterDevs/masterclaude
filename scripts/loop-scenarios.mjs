@@ -40,7 +40,7 @@ const impl = { status: 'done', changedFiles: ['f.py'], notes: 'n', punted: [{ it
 const refac = { changedFiles: ['f.py'], applied: [], notes: 'n', punted: [{ item: 'dead helper', reason: 'elsewhere' }] }
 const vpass = { passed: true, results: [], failures: [], needsApprovalFor: [] }
 const vfail = { passed: false, results: [], failures: ['boom'], needsApprovalFor: [] }
-const find = (sev) => ({ findings: sev.map((s, i) => ({ severity: s, lens: 'correctness', file: 'f.py', line: i + 1, summary: s, fix: 'x' })) })
+const find = (sev) => ({ findings: sev.map((s, i) => ({ severity: s, lens: 'correctness', file: 'f.py', line: i + 1, summary: s, fix: 'x', soWhat: 'users see a stale total until the next refresh' })) })
 const iter = (o) => ({ decision: 'stop', mustFix: [], polish: [], conflicts: [], deferred: [], ...o })
 
 const LOOP_ARGS = { brief: 'b', playbookDir: '/pb', runDir: '/run', startFrom: 'implement', approved: APPROVED, userReviewers: [] }
@@ -160,7 +160,7 @@ const scenarios = [
     args: LOOP_ARGS,
     responder: (l) =>
       l.startsWith('implement') || l === 'polish'
-        ? { ...impl, escalations: [{ issue: 'file not as planned', why: 'took adjacent seam' }] } :
+        ? { ...impl, escalations: [{ issue: 'file not as planned', why: 'took adjacent seam', soWhat: 'no user-visible change; the seam moved one layer out' }] } :
       l.startsWith('refactor') ? refac :
       l.startsWith('verify') ? vpass :
       l.startsWith('review') ? find(['low']) : iter({ polish: ['p'] }),
@@ -176,7 +176,7 @@ const scenarios = [
     responder: (l) =>
       l.startsWith('implement')
         ? { status: 'blocked', changedFiles: [], notes: 'dead end',
-            escalations: [{ issue: 'dependency absent', why: 'no path' }], punted: [{ item: 'x', reason: 'y' }] }
+            escalations: [{ issue: 'dependency absent', why: 'no path', soWhat: 'the feature cannot ship until this is decided' }], punted: [{ item: 'x', reason: 'y' }] }
         : null,
     expect: ({ result }) => [
       [result.outcome === 'blocked', `outcome should be blocked, got ${result.outcome}`],
@@ -206,6 +206,23 @@ const scenarios = [
       [result.outcome === 'awaiting-plan-approval', `got ${result.outcome}`],
       [/Resolve the brief into a clear, terse/.test(prompt), 'must still derive requirements when no interview ran'],
       [!/SETTLED/.test(prompt), 'must not claim settled scope that nobody confirmed'],
+    ],
+  },
+  {
+    name: 'reviewer is told to write for a human who will not read the diff',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['low']) : iter({}),
+    capturePrompt: 'review:reviewer:1',
+    expect: ({ prompt }) => [
+      [/soWhat/.test(prompt), 'the reviewer must be asked for a plain-language consequence'],
+      [/No file names, no function or symbol names/.test(prompt),
+        'the rule banning identifiers from soWhat must reach the reviewer'],
+      [/vocabulary to write/.test(prompt),
+        'the reviewer must be pointed at the requirements as the vocabulary to use'],
     ],
   },
   {
