@@ -15,10 +15,13 @@ export const meta = {
 
 // ── args (resolved by the feature skill) ──
 // { brief, playbookDir, rosterPath, runDir }  — runDir: a scratch dir for human-readable artifacts.
+// On the FIRST call the skill also passes:
+//   intent: {outcome, user, whyNow, success, constraint, outOfScope} — confirmed with the user in the
+//           skill's interview. Settled scope; Refine researches against it instead of re-deriving it.
 // On the second call the skill also passes:
 //   approved:      {refine, plan}   — the approved artifacts, already parsed (saves an agent spawn)
 //   userReviewers: [{name, agentType, model}] — the user roster, already read (saves an agent spawn)
-// Both fall back to a small loader agent when absent, so the workflow still runs standalone.
+// All three fall back gracefully when absent, so the workflow still runs standalone.
 let input = args || {}
 if (typeof input === 'string') {
   try { input = JSON.parse(input) } catch (e) {
@@ -29,6 +32,14 @@ const { brief, playbookDir, rosterPath, runDir } = input
 if (!brief || !playbookDir) {
   throw new Error('feature-loop requires args.brief and args.playbookDir — got keys: [' + Object.keys(input).join(', ') + ']')
 }
+
+// Confirmed intent from the skill's interview, rendered for the Refine prompt. Accepts the structured
+// object or a pre-formatted restate string.
+const intent = input.intent || null
+const intentBlock = !intent ? '' : (typeof intent === 'string' ? intent : [
+  ['Outcome', intent.outcome], ['User', intent.user], ['Why now', intent.whyNow],
+  ['Success', intent.success], ['Constraint', intent.constraint], ['Out of scope', intent.outOfScope],
+].filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n'))
 
 // Two rounds, not three. Measured across real runs: rounds 2 and 3 cost 50-67% of the budget while the
 // findings list never shrank monotonically (one run's criticals doubled in round 2; another's round-3 pass
@@ -84,12 +95,28 @@ const PLAN_SCHEMA = {
   },
 }
 
+// Two distinct channels for anything an agent notices that isn't its job:
+//   escalations — the code surprised us; a human may need to decide. Surfaces at the end; with
+//                 status="blocked" it stops the run outright.
+//   punted      — small, out of scope, recorded and moved past. NEVER stops the run, never asks.
+// Scope questions are NOT valid escalations: those were settled in the interview before the run went dark.
+const ESCALATIONS = { type: 'array', items: {
+  type: 'object', additionalProperties: false, required: ['issue', 'why'],
+  properties: { issue: { type: 'string' }, why: { type: 'string' } },
+} }
+const PUNTED = { type: 'array', items: {
+  type: 'object', additionalProperties: false, required: ['item', 'reason'],
+  properties: { item: { type: 'string' }, reason: { type: 'string' } },
+} }
+
 const IMPLEMENT_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['status', 'changedFiles', 'notes'],
   properties: {
     status: { type: 'string', enum: ['done', 'blocked'] },
     changedFiles: { type: 'array', items: { type: 'string' } },
     notes: { type: 'string' },
+    escalations: ESCALATIONS,
+    punted: PUNTED,
   },
 }
 
@@ -99,6 +126,8 @@ const REFACTOR_SCHEMA = {
     changedFiles: { type: 'array', items: { type: 'string' } },
     applied: { type: 'array', items: { type: 'string' } },   // refactors performed
     notes: { type: 'string' },
+    escalations: ESCALATIONS,
+    punted: PUNTED,
   },
 }
 
@@ -161,6 +190,20 @@ const merge = (a, b) => [...new Set([...(a || []), ...(b || [])])]
 // Intra-agent context discipline: keeps a single agent lean so it stays in the model's effective zone and
 // any runtime auto-compaction is lossless (durable state is already externalized). Appended to the phases
 // most prone to context growth (broad research, multi-file implementation, command-heavy verification).
+// Appended to every agent that writes code. The run is unattended by design: the user front-loaded the
+// interview and the plan gate specifically so they could go do other work. Interrupting them is expensive
+// and must be reserved for things that genuinely surprised us.
+const CHANNELS =
+  `\n\nTwo channels for anything you notice that isn't your job — use them instead of stopping to ask:\n` +
+  `• \`punted\` — small, out of scope, or better done later (a nearby smell, a missing test elsewhere, a ` +
+  `rename you'd like). Record {item, reason} and MOVE ON. This never interrupts anyone; it is the default.\n` +
+  `• \`escalations\` — the code contradicted the plan in a way a human should know about: a file isn't shaped ` +
+  `as described, a required dependency is absent, the planned approach would break existing behavior. Record ` +
+  `{issue, why}. If you found a defensible way forward, take it and keep status="done" — the escalation still ` +
+  `surfaces at the end. Set status="blocked" ONLY if you genuinely cannot proceed.\n` +
+  `Scope and preference questions are NOT escalations — those were settled with the user before this run ` +
+  `started. Do not stop to re-ask them; implement what the requirements say.`
+
 const CONTEXT_DISCIPLINE =
   `\n\nContext discipline: work lean. Read targeted sections (grep, specific symbols) rather than whole large ` +
   `files; externalize durable findings to the artifact or code AS YOU GO instead of holding them in context; ` +
@@ -197,9 +240,19 @@ if (startFrom === 'implement') {
   refine = await agent(
     `You are refining requirements for a feature — objective research only, no implementation opinions yet.\n\n` +
     `Feature brief:\n${brief}\n\n` +
-    `Read the relevant code, specs, product/UI notes, and existing behavior. Resolve the brief into a clear, terse ` +
-    `\`requirements\` statement. Surface \`openQuestions\` ONLY for genuine blocking ambiguities or contradictions ` +
-    `you cannot resolve from the code/specs (leave empty if none). Define \`successCriteria\` — concrete happy / ` +
+    (intentBlock
+      ? `The user already confirmed this intent in an interview. It is SETTLED — restate it faithfully as your ` +
+        `\`requirements\` (enrich with code specifics; never widen, narrow, or reopen scope). Honor "Out of scope" ` +
+        `as a hard boundary.\n\nConfirmed intent:\n${intentBlock}\n\n`
+      : ``) +
+    `Read the relevant code, specs, product/UI notes, and existing behavior. ` +
+    (intentBlock ? `` : `Resolve the brief into a clear, terse \`requirements\` statement. `) +
+    (intentBlock
+      ? `Surface \`openQuestions\` ONLY for a contradiction you find in the CODE that the interview could not have ` +
+        `anticipated — not for scope or preference questions, which are already answered above. Leave empty if none.`
+      : `Surface \`openQuestions\` ONLY for genuine blocking ambiguities or contradictions you cannot resolve from ` +
+        `the code/specs (leave empty if none).`) +
+    ` Define \`successCriteria\` — concrete happy / ` +
     `failure / edge behaviors with how to prove each — and a \`verifyMethod\`: how to exercise this feature live ` +
     `(app, endpoints, integration), listing any \`riskySteps\` that are destructive/irreversible and must not run ` +
     `without human approval.\n` +
@@ -272,6 +325,18 @@ let revisions = []                 // critical/high fixes fed back into Implemen
 const polish = []                  // medium/low revisions, batched for one closing pass
 const deferred = []                // recorded, not addressed
 const conflicts = []               // clash with requirements/plan → user decides
+const punted = []                  // small things agents noticed and moved past — never interrupts
+const escalations = []             // the code surprised us — surfaced at the end, or stops the run
+
+// Drain both channels off any agent result. Deliberately NOT fed to the reviewers: telling a reviewer
+// "the engineer already knows about X" biases it away from reporting X. If a reviewer independently
+// flags something that was punted, that's free signal the punt was wrong.
+const collect = (r) => {
+  if (!r) return r
+  if (r.punted) punted.push(...r.punted)
+  if (r.escalations) escalations.push(...r.escalations)
+  return r
+}
 let iteration = 0
 let lastFindings = []
 let verifyPassed = false
@@ -295,26 +360,29 @@ while (iteration < MAX_ITERATIONS) {
     : `Apply ONLY these approved revisions to the existing implementation in the current worktree, then report ` +
       `changed files. Keep tests green. Stay in scope.\n\nRevisions:\n${revisions.map((r) => `- ${r}`).join('\n')}\n\n` +
       `(Plan context)\n${planBlock}` + notesBlock()
-  const implFull = implPrompt + CONTEXT_DISCIPLINE
-  const impl = await agent(implFull, {
+  const implFull = implPrompt + CHANNELS + CONTEXT_DISCIPLINE
+  const impl = collect(await agent(implFull, {
     label: `implement:${iteration}`, phase: 'Implement',
     agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA,
-  })
+  }))
   if (!impl) return { outcome: 'error', iteration, notes: 'implement returned no result' }
-  if (impl.status === 'blocked') return { outcome: 'blocked', iteration, notes: impl.notes }
+  if (impl.status === 'blocked') {
+    return { outcome: 'blocked', iteration, notes: impl.notes, escalations, punted, changedFiles,
+      requirementsPath: reqPath, planPath: planFilePath }
+  }
   changedFiles = merge(changedFiles, impl.changedFiles)
   if (impl.notes) carryNotes = impl.notes
 
   // ── Refactor ──
   phase('Refactor')
-  const refactor = await agent(
+  const refactor = collect(await agent(
     `Review the plan and the current implementation for refactoring opportunities the implementation may have ` +
     `introduced — duplication, a helper that wants extracting, a seam in the wrong place, dead code. Apply only ` +
     `SAFE, behavior-preserving refactors in scope; keep tests green. Stage any recurring pattern as a candidate ` +
     `(never a promoted lane).\n\nThe plan is below — it is your scope. Do NOT go looking for a plan file on disk; ` +
-    `there isn't one.\n\n${planBlock}\n\nChanged files: ${changedFiles.join(', ')}\n${playbookNote}`,
+    `there isn't one.\n\n${planBlock}\n\nChanged files: ${changedFiles.join(', ')}\n${playbookNote}` + CHANNELS,
     { label: `refactor:${iteration}`, phase: 'Refactor', agentType: 'masterdevs:engineer', model: 'sonnet', schema: REFACTOR_SCHEMA }
-  )
+  ))
   if (refactor) { changedFiles = merge(changedFiles, refactor.changedFiles); if (refactor.notes) carryNotes = refactor.notes }
 
   // ── Verify ∥ Review ────────────────────────────────────────────────────
@@ -374,11 +442,11 @@ while (iteration < MAX_ITERATIONS) {
     vAttempt++
     reviewStale = true
     log(`verify fix ${vAttempt}/${MAX_VERIFY_FIX} (${verify.failures.length} failing)`)
-    const fix = await agent(
+    const fix = collect(await agent(
       `Verification failed. Fix ONLY these failing behaviors in the current worktree, then report changed files. ` +
-      `Keep the rest of the tests green.\n\nFailures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock(),
+      `Keep the rest of the tests green.\n\nFailures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock() + CHANNELS,
       { label: `implement:${iteration}.fix${vAttempt}`, phase: 'Verify', agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA }
-    )
+    ))
     if (!fix || fix.status === 'blocked') break
     changedFiles = merge(changedFiles, fix.changedFiles)
     if (fix.notes) carryNotes = fix.notes
@@ -427,14 +495,14 @@ while (iteration < MAX_ITERATIONS) {
 let polishApplied = []
 if (polish.length && !conflicts.length) {
   phase('Polish')
-  const pol = await agent(
+  const pol = collect(await agent(
     `Apply ONLY these low-risk revisions to the existing implementation in the current worktree, then report ` +
     `changed files. They are advisory (medium/low severity) cleanups, already judged safe to apply unsupervised. ` +
     `Keep every test green, stay strictly in scope, and skip any revision that turns out to need a design change — ` +
     `list those in \`notes\` instead of forcing them.\n\n` +
-    `Revisions:\n${polish.map((r) => `- ${r}`).join('\n')}\n\n(Plan context)\n${planBlock}` + notesBlock(),
+    `Revisions:\n${polish.map((r) => `- ${r}`).join('\n')}\n\n(Plan context)\n${planBlock}` + notesBlock() + CHANNELS,
     { label: 'polish', phase: 'Polish', agentType: 'masterdevs:engineer', model: 'sonnet', schema: IMPLEMENT_SCHEMA }
-  )
+  ))
   if (pol && pol.status !== 'blocked') {
     changedFiles = merge(changedFiles, pol.changedFiles)
     polishApplied = polish
@@ -479,12 +547,15 @@ if (reviewStale && verifyPassed && !conflicts.length) {
 
 const unresolvedBlocking = lastFindings.filter((f) => BLOCKING.has(f.severity))
 return {
-  outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0) ? 'passed' : 'needs-attention',
+  outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0 && escalations.length === 0)
+    ? 'passed' : 'needs-attention',
   iterations: iteration,
   changedFiles,
   verifyPassed,
   verifyNeedsApproval,        // risky steps Verify declined to run — need human
   conflicts,                  // clash with requirements/plan — user decides
+  escalations,                // the code surprised us mid-run — a human should look
+  punted,                     // small things noticed and moved past — recorded, no action taken
   polishApplied,              // medium/low revisions batched and applied once, without re-review
   deferred,                   // recorded, intentionally not addressed
   unresolvedBlocking,         // high/critical findings still open after the cap

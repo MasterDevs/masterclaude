@@ -1,7 +1,7 @@
 {
   "name": "masterdevs",
-  "version": "0.5.0",
-  "description": "Orchestrated feature loop: Refine → Plan (you approve) → Implement → Refactor → Verify ∥ Review → Iterate → Polish, in one worktree with a fresh context per phase, over a self-learning design-pattern Playbook. Priority hierarchy: security > reliability > velocity.",
+  "version": "0.6.0",
+  "description": "Orchestrated feature loop: Interview → Refine → Plan (you approve) → Implement → Refactor → Verify ∥ Review → Iterate → Polish. Front-loads your attention into one conversation, then runs unattended over a self-learning design-pattern Playbook. Priority hierarchy: security > reliability > velocity.",
   "author": {
     "name": "Kevin Prudente"
   },

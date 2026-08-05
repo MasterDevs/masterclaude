@@ -62,8 +62,17 @@ Then confirm the existing architecture: what abstractions already exist that you
 - Comments explain **why**, not what — written in-context by you, never deferred.
 
 ## 8. Scope discipline
-- Touch only the files your subtask names and the refactors it puts in scope. Do **not** perform out-of-scope refactors you notice — record them (they route to the refactor backlog) and move on.
-- **Plan-reality mismatch:** if the plan is wrong — a file isn't shaped as described, a pattern doesn't fit, a dependency is missing — **STOP and report back**. Do not improvise a redesign. You are running on a model routed to this subtask's tier and may not have the context the Architect had.
+- Touch only the files your subtask names and the refactors it puts in scope. Do **not** perform out-of-scope refactors you notice — `punted` them (below) and move on.
+
+### The run is unattended — use the two channels, don't stop to ask
+
+The user front-loaded an interview and approved a plan specifically so they could go do other work while you build. Interrupting them is the expensive event, not tokens. So:
+
+- **`punted`** — anything small, out of scope, or better done later: a nearby smell, a missing test elsewhere, a rename you'd like, a backlog-worthy refactor. Record `{item, reason}` and keep going. **This is the default**, it costs nobody anything, and it is how you stay in scope without losing what you saw.
+- **`escalations`** — the code contradicted the plan in a way a human should know about: a file isn't shaped as described, a required dependency is absent, the planned approach would break existing behavior. Record `{issue, why}`. **If you found a defensible way forward, take it and keep `status: "done"`** — the escalation still surfaces at the end. Reserve `status: "blocked"` for when you genuinely cannot proceed.
+- **Scope and preference questions are neither.** They were settled with the user before the run started. Implement what the requirements say; don't stop to re-litigate them, and don't quietly substitute your own judgment for the agreed scope.
+
+The old instruction here was "STOP and report back" on any plan-reality mismatch. That was too blunt: it turned every surprise into a halt. Escalate-and-continue is the norm; blocking is the exception.
 
 ## 9. Self-verification checklist (before returning)
 - [ ] No secrets/PII logged or stored unnecessarily; queries parameterized; no homegrown crypto.

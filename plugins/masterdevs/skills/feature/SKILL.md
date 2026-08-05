@@ -26,26 +26,82 @@ The engine is a single RPI-style loop in one worktree — **Refine → Plan → 
 2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` < shipped `VERSION`: **merge, don't clobber.** For each seed `catalog.md`/roster, add only entries whose pattern/name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
 3. Ensure candidate staging files exist (create empty with headers if missing): `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
 
-## Step 2 — Refine + Plan (first call, stops for approval)
+## Step 2 — Interview the user until the intent is settled
+
+**This is the highest-leverage step in the whole command.** Everything after the plan gate runs unattended — that is the point of the tool. The user front-loads their attention here so they can go do other work while the agents build. So every question that is answerable *now* must be asked *now*: a question asked at minute 40 costs them a context switch, and a wrong assumption costs them the whole run.
+
+You are in the main session and can talk to the user. The workflow's agents cannot. Use that.
+
+### When to skip
+
+Skip the interview and go straight to Step 3 when the brief is already self-contained — you can state the outcome, who it's for, what success looks like, and what's out of scope in one sentence each, with **~95% confidence**. Mechanical work ("rename X to Y across the repo") and briefs the user has already spec'd out qualify. Say you're skipping and why, in one line, so they can stop you.
+
+Otherwise, interview.
+
+### How to interview
+
+1. **Open with a hypothesis and a confidence number.**
+   ```
+   HYPOTHESIS: <your best one-sentence reading of what they want>
+   CONFIDENCE: ~30% — missing: <what's unresolved>
+   ```
+   Below ~70%, say what's unresolved. This shows them exactly what the interview needs to close.
+
+2. **Ask one question at a time, each carrying your guess.**
+   ```
+   Q: <one focused question>
+   GUESS: <your hypothesis for the answer, and why>
+   ```
+   Wait for the answer before the next question. One at a time, not batched — later questions depend on earlier answers, and people correct a wrong guess far faster than they compose an answer from nothing. Attaching your guess is what makes that work; it also exposes your assumptions while they're still cheap to fix.
+
+3. **Probe convention-signalling.** When you hear "it should be scalable", "the standard approach", "I should probably…" — that's deference to norms, not a requirement. Ask: *"If you didn't have to justify this to anyone, what would you actually want?"*
+
+4. **Stop at ~95% confidence.** The test is checkable, not a vibe: **can you predict the user's reaction to the next three questions you would ask?** If yes, stop and restate. If no, ask the next one.
+
+5. **Restate for line-by-line confirmation.**
+   ```
+   - Outcome:      <one line>
+   - User:         <one line — who benefits>
+   - Why now:      <one line — what changed>
+   - Success:      <one line — how we'll know it worked>
+   - Constraint:   <one line — the binding limit>
+   - Out of scope: <one line — what we are explicitly NOT doing>
+
+   Yes / no / refine?
+   ```
+   **The "Out of scope" line is not optional.** Most late-breaking conflicts are silent disagreement about what wasn't being built — and under this design those conflicts surface hours later, after the run has gone dark.
+
+6. **Take explicit yes only.** "Whatever you think" → re-ask as a choice between two concrete options. "Sounds good" → ask what they'd refine. Silence → ask what's missing. Loop until they actually confirm.
+
+Carry the confirmed six-field restate forward as `intent`.
+
+## Step 3 — Refine + Plan (first call, stops for approval)
 
 The workflow ships as a plain file — call it by path. It runs in the **current worktree**, so invoke `/masterdevs:feature` from the feature's worktree/branch. **Pass `args` as a real JSON object, never a stringified/escaped blob** (a stringified value reaches the script as one string and the run fails). Substitute resolved absolute paths (no `<...>` placeholders or literal `$VARS`):
 
 ```
 Workflow({
   scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-loop.js",
-  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>" }
+  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>",
+          intent: {outcome, user, whyNow, success, constraint, outOfScope} }
 })
 ```
 
-This first call runs **Refine → Plan**, then **stops**. It returns either:
-- `{outcome: "needs-clarification", openQuestions, requirementsPath}` — Refine hit a blocking ambiguity/contradiction. **Stop and ask the user** the questions; when answered, re-run this call with the answers folded into the brief.
+Pass `intent` whenever you interviewed. Refine then treats scope as settled and spends its budget researching the code instead of re-deriving what to build. Omit it only when you skipped the interview.
+
+This call runs **Refine → Plan**, then **stops**. It returns either:
+- `{outcome: "needs-clarification", openQuestions, requirementsPath}` — Refine found a contradiction *in the code* the interview couldn't have anticipated. Ask the user; re-run with the answers folded into the brief. If you interviewed and this still fires, the questions are worth reading closely — they're either a genuine code surprise or a gap in your interview.
 - `{outcome: "awaiting-plan-approval", summary, stepCount, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
 
-## Step 3 — Plan approval gate (STOP)
+## Step 4 — Plan approval gate (STOP — the last interruption before the run goes dark)
+
+Do this **in the same sitting as the interview**. The user's attention is already here; sending them away and pulling them back costs another context load.
 
 Read `planPath` (and `requirementsPath` for context). Summarize the plan — the design approach, the steps, the resolved patterns, and the success criteria Verify will check — and ask the user to **approve, edit, or reject**. Human edits to `plan.md` win (the next call re-reads the file, so their edits are authoritative). Do not proceed until approved.
 
-## Step 4 — Run the loop (second call, `startFrom: "implement"`) with 5-minute status updates
+Before you hand off, ask yourself the question the rest of the run depends on: **is there anything left that a human could answer now?** After this gate the agents are on their own until they finish. If a step's guidance makes you uneasy, or a success criterion is ambiguous, or you're unsure whether something is in scope — raise it here. This is the last free moment.
+
+## Step 5 — Run the loop (second call, `startFrom: "implement"`) with 5-minute status updates
 
 On approval, resume into the Implement → Refactor → (Verify ∥ Review) → Iterate loop with the **same `runDir`**.
 
@@ -70,23 +126,27 @@ The call returns a **run id** immediately. **Post a status line to this chat eve
 1. Record the start time and the run id.
 2. Schedule the next check ~5 minutes out with `ScheduleWakeup` (`delaySeconds: 300`, a `reason` like "masterdevs 5-min status update", and a `prompt` that re-enters this status step for this run id).
 3. On each wakeup, read the run's **live progress** — via its task status, or its state file at `~/.claude/projects/<encoded-cwd>/<session>/workflows/<runId>.json` (fields `status`, `phases`, `workflowProgress`, `agentCount`, `startTime`) — and post **one concise line** to the chat, e.g. `⏳ masterdevs: Verify (iteration 2/3) · 3 agents run · 11 min elapsed`. Then re-schedule (step 2).
-4. When the run's `status` is no longer running (`completed`/`killed`) **or** its completion notification arrives, **stop the heartbeat** (`ScheduleWakeup` with `stop: true`) and go to Step 5.
+4. When the run's `status` is no longer running (`completed`/`killed`) **or** its completion notification arrives, **stop the heartbeat** (`ScheduleWakeup` with `stop: true`) and go to Step 6.
 
 If this session is closed, the 5-minute posts stop but the run keeps going — catch up via `/workflows` or the completion notification. (The quick Refine+Plan call and the approval gate are **not** wrapped in this heartbeat — only this long loop is.)
 
-When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, polishApplied, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, two fields need you mid-flight:
+When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, escalations, punted, polishApplied, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, three fields may need you mid-flight:
 - **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and **stopped there**, because only a human can settle them. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief. Note that the loop ended early, so remaining work may still be outstanding.
+- **`escalations` non-empty** — an agent hit something the plan didn't predict: a file not shaped as described, a missing dependency, an approach that would break existing behavior. If `outcome` is `blocked`, work stopped there. Otherwise the agent found a way forward and kept going — surface these anyway, since a human should confirm the path it chose.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
-## Step 5 — Report (outcome first)
+## Step 6 — Report (outcome first)
 
 Lead with the bottom line: did it land clean (`outcome: "passed"`), and what's the state of the code. Then:
 - **Verify:** passed or not, against which success criteria; any steps it declined to run (`verifyNeedsApproval`).
 - **Review:** any `unresolvedBlocking` (high/critical) findings still open after the cap — surfaced verbatim; these need a human.
 - **Conflicts:** anything left for the user to decide.
 - **Polish:** what `polishApplied` covers — medium/low revisions applied in one closing pass. Say plainly that these were regression-checked but **not** re-reviewed; that trade is deliberate.
+- **Escalations:** what surprised the agents mid-run, and what they did about it.
+- **Punted:** the small things agents noticed and moved past (`punted`). List them compactly — this is the backlog the run generated, and it's the payoff for not interrupting. Anything genuinely worth doing should become a ticket or a Playbook candidate.
 - **Deferred:** what was intentionally **not** addressed and why (record it plainly — this is a deliberate decision, not a silent drop).
 - **Iterations:** how many loop passes ran (1 or 2). Point the user at `requirementsPath` / `planPath` for the artifacts.
+- **Interruptions:** count how many times this feature required the user — interview and plan gate included. That number is the metric this design optimizes; report it so it can be tracked run over run.
 - Note pattern/lesson **candidates** were staged (not promoted) — reviewable with `/masterdevs:playbook`.
 - If `outputTokens` is present, report it as a rough cost signal.
 
