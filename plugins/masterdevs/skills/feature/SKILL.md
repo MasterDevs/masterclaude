@@ -7,7 +7,7 @@ description: "Run the masterdevs feature loop on a brief: bootstrap the Playbook
 
 You are running the masterdevs feature loop. The user's brief follows the command. Work through these steps in order. Report **outcome first** (per the user's communication rules), demoting mechanism to supporting detail.
 
-The engine is a single RPI-style loop in one worktree — **Refine → Plan → Implement → Refactor → Verify → Review → Iterate** — where each phase runs in a fresh context seeded by the prior phase's terse artifact, so context stays small and cheap. It runs **autonomously**: it stops only when Refine has a blocking question, when Iterate surfaces a plan-conflict, or when it finishes.
+The engine is a single RPI-style loop in one worktree — **Refine → Plan → Implement → Refactor → (Verify ∥ Review) → Iterate**, closing with a **Polish** pass — where each phase runs in a fresh context seeded by the prior phase's terse artifact, so context stays small and cheap. Verify and Review run concurrently (both are read-only). The loop buys another round **only** for critical/high findings or a failed verification; medium/low findings are batched into the single closing Polish pass instead. It runs **autonomously**: it stops only when Refine has a blocking question, when Iterate surfaces a plan-conflict, or when it finishes.
 
 ## Step 0 — Resolve paths (do this first)
 
@@ -47,12 +47,20 @@ Read `planPath` (and `requirementsPath` for context). Summarize the plan — the
 
 ## Step 4 — Run the loop (second call, `startFrom: "implement"`) with 5-minute status updates
 
-On approval, resume into the Implement → Refactor → Verify → Review → Iterate loop with the **same `runDir`** (it loads the approved, possibly-edited artifacts). Run it **in the background** so this session can post progress while it works:
+On approval, resume into the Implement → Refactor → (Verify ∥ Review) → Iterate loop with the **same `runDir`**.
+
+First, read the two things the loop would otherwise spend an agent apiece fetching, and pass them inline:
+
+- **`approved`** — parse the trailing fenced ` ```json ` block from `requirementsPath` and from `planPath` (the human may have edited them at the gate; those files are authoritative) and pass them as `{refine: <requirements json>, plan: <plan json>}`.
+- **`userReviewers`** — the array in `$PLAYBOOK_DIR/rosters/reviewers.user.json`, or `[]` if the file is absent or empty.
+
+Both are optional: omit either and the workflow falls back to loading it itself. Run it **in the background** so this session can post progress while it works:
 
 ```
 Workflow({
   scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-loop.js",
-  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>", startFrom: "implement" },
+  args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>",
+          startFrom: "implement", approved: {refine: {...}, plan: {...}}, userReviewers: [] },
   run_in_background: true
 })
 ```
@@ -66,8 +74,8 @@ The call returns a **run id** immediately. **Post a status line to this chat eve
 
 If this session is closed, the 5-minute posts stop but the run keeps going — catch up via `/workflows` or the completion notification. (The quick Refine+Plan call and the approval gate are **not** wrapped in this heartbeat — only this long loop is.)
 
-When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, two fields need you mid-flight:
-- **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and left them for a human. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief.
+When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, polishApplied, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, two fields need you mid-flight:
+- **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and **stopped there**, because only a human can settle them. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief. Note that the loop ended early, so remaining work may still be outstanding.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
 ## Step 5 — Report (outcome first)
@@ -76,8 +84,9 @@ Lead with the bottom line: did it land clean (`outcome: "passed"`), and what's t
 - **Verify:** passed or not, against which success criteria; any steps it declined to run (`verifyNeedsApproval`).
 - **Review:** any `unresolvedBlocking` (high/critical) findings still open after the cap — surfaced verbatim; these need a human.
 - **Conflicts:** anything left for the user to decide.
+- **Polish:** what `polishApplied` covers — medium/low revisions applied in one closing pass. Say plainly that these were regression-checked but **not** re-reviewed; that trade is deliberate.
 - **Deferred:** what was intentionally **not** addressed and why (record it plainly — this is a deliberate decision, not a silent drop).
-- **Iterations:** how many loop passes ran. Point the user at `requirementsPath` / `planPath` for the artifacts.
+- **Iterations:** how many loop passes ran (1 or 2). Point the user at `requirementsPath` / `planPath` for the artifacts.
 - Note pattern/lesson **candidates** were staged (not promoted) — reviewable with `/masterdevs:playbook`.
 - If `outputTokens` is present, report it as a rough cost signal.
 

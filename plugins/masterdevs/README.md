@@ -2,19 +2,27 @@
 
 `masterdevs` runs a feature from a one-line brief to reviewed, integrated code through a team of specialized agents, over a design-pattern knowledge base that learns as you use it.
 
-## The pipeline
+## The loop
+
+One RPI-style loop in a single worktree. Each phase runs in a **fresh context** seeded only by the previous phase's terse artifact, so no agent inherits another's token bloat.
 
 ```
 brief
-  → Scout        read-only map of the affected subsystems
-  → Architect    decompose into subtasks; choose patterns; route each to a model
-     └ Principal  (only when the brief spans domains) designs cross-domain seams, fans out specialists
-  → [ you approve the plan ]
-  → Engineers    one per subtask, model-routed, in isolated worktrees
-  → Review Panel triggered, parallel: correctness + security + performance + frontend (extensible)
-  → fix loop     findings route back to the same engineer, max 2 rounds
-  → Integrate    merge in dependency order, run the suite, verify the combined result
+  → Refine       resolve the brief into requirements + success criteria (blocking questions stop here)
+  → Plan         Architect resolves the design; pattern guidance inlined per step
+  → [ you approve the plan — edits to plan.md win ]
+  → Implement    build the plan in one pass, tests alongside
+  → Refactor     clean up what the implementation introduced
+  → Verify ∥ Review    run concurrently — both read-only
+       Verify    exercise the success criteria; failures route back to a fix agent
+       Review    one combined reviewer (+ your roster) over the new code only
+  → Iterate      another round ONLY for critical/high findings or a failed verify
+  → Polish       the batched medium/low revisions, applied once and regression-checked
 ```
+
+**The loop is capped at 2 rounds, and nits can't buy one.** Earlier versions ran three rounds and re-reviewed after every revision; in practice the findings list churned rather than converged — a fresh crop each round, at 50–67% of the run's cost. Medium/low findings now collect into the single closing Polish pass. They are regression-checked but deliberately **not** re-reviewed; the report says so explicitly.
+
+The loop stops early and hands back to you when Refine hits a blocking ambiguity, or when Iterate finds a revision that conflicts with the approved requirements or plan.
 
 Priority hierarchy governing all generated code: **security > reliability/correctness > velocity**.
 
@@ -22,20 +30,20 @@ Priority hierarchy governing all generated code: **security > reliability/correc
 
 | Command | What it does |
 |---|---|
-| `/masterdevs:feature <brief>` | Run the full pipeline. Stops for your approval between plan and build (except small-tier). |
+| `/masterdevs:feature <brief>` | Run the loop. Stops for your approval between plan and build. |
 | `/masterdevs:playbook` | Review, promote, or prune staged pattern/lesson candidates — the only gate into promoted knowledge. |
 | `/masterdevs:roster` | Register a specialist reviewer (any installed plugin's agent) into the Review Panel. |
 
 ## Model routing
 
-| Tier | Model | Why |
-|---|---|---|
-| small / straightforward | `sonnet` | mechanical work |
-| complex | `opus` | multi-file reasoning |
-| must-not-break / sensitive | `fable` | auth, crypto, payments, PII, access control, trust boundaries |
-| standalone text/docs only | `haiku` | never split comments from the code they explain |
+Routed per phase by what the phase actually demands:
 
-Classification **fails upward**: uncertain tier → the higher model. Sensitivity tripwires are non-negotiable.
+| Phase | Model | Why |
+|---|---|---|
+| Plan, Implement, Review | `opus` | design decisions, multi-file reasoning, adversarial judgment |
+| Refine, Refactor, Verify, Iterate, Polish | `sonnet` | bounded, mechanical, or already-specified work |
+
+When a step crosses a sensitivity tripwire — auth, crypto/secrets, payments, PII, access control, trust boundaries — the Architect flags it in the plan so the engineer and reviewer both treat it as must-not-break.
 
 ## The Playbook (self-learning)
 

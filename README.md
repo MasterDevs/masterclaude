@@ -21,7 +21,7 @@ Then run:
 
 | Plugin | Description |
 |---|---|
-| [`masterdevs`](./plugins/masterdevs) | Scout → Architect (→ Principal for multi-domain) → model-routed Engineers → extensible Review Panel → fix loop → integrate, with priority hierarchy security > reliability > velocity. See the [plugin README](./plugins/masterdevs/README.md). |
+| [`masterdevs`](./plugins/masterdevs) | Refine → Plan (you approve) → Implement → Refactor → Verify ∥ Review → Iterate → Polish, in one worktree with a fresh context per phase and priority hierarchy security > reliability > velocity. See the [plugin README](./plugins/masterdevs/README.md). |
 
 ## Repo layout
 

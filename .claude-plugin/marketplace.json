@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Multi-agent feature-development pipeline for Claude Code — plan, build, review, and learn.",
-    "version": "0.4.1"
+    "version": "0.5.0"
   },
   "plugins": [
     {
       "name": "masterdevs",
       "source": "./plugins/masterdevs",
-      "description": "Orchestrated feature pipeline: Scout → Architect → model-routed Engineers → extensible Review Panel → fix loop → integrate, over a self-learning design-pattern Playbook."
+      "description": "Orchestrated feature loop: Refine → Plan (you approve) → Implement → Refactor → Verify ∥ Review → Iterate → Polish, over a self-learning design-pattern Playbook."
     }
   ]
 }
