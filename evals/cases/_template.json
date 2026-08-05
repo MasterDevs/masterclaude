@@ -1,0 +1,40 @@
+{
+  "name": "short-kebab-name",
+  "why": "What this case is for — the behavior it stresses. E.g. 'a brief with a deliberate scope ambiguity, to check the interview catches it before the run goes dark'.",
+
+  "target": {
+    "repo": "/absolute/path/to/target/repo",
+    "startCommit": "abc1234",
+    "note": "Reset to this commit before every run, or the two arms aren't comparable."
+  },
+
+  "brief": "The exact text passed to /masterdevs:feature. Keep it realistic — vague where real briefs are vague, since a brief with no ambiguity cannot test whether the interview finds ambiguity.",
+
+  "interviewAnswers": [
+    {
+      "question": "Roughly the question you expect — match on intent, not wording.",
+      "answer": "The answer to give, verbatim. Same answer in both arms."
+    }
+  ],
+
+  "expectations": [
+    "Statements the finished run should satisfy. Be specific and checkable.",
+    "e.g. 'The interview surfaces the ambiguity about which entity the totals are scoped to.'",
+    "e.g. 'outcome is passed, with zero conflicts.'",
+    "e.g. 'Tests cover the failure path, not only the happy path.'"
+  ],
+
+  "recordAfterEachRun": {
+    "pluginVersion": "",
+    "outcome": "",
+    "unplannedStops": null,
+    "iterations": null,
+    "verifyPassed": null,
+    "conflicts": null,
+    "escalations": null,
+    "punted": null,
+    "wallClockMinutes": null,
+    "tokens": null,
+    "notes": "Anything the numbers don't capture — a bad question in the interview, a punt that should not have been punted, a defect the reviewer missed."
+  }
+}

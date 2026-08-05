@@ -1,0 +1,204 @@
+{
+  "generated": "2026-08-05T18:16:53.586Z",
+  "versionAtSnapshot": "0.6.0",
+  "gitCommit": "1b504cb",
+  "label": "pre-interview-v0.4.1",
+  "window": {
+    "since": "2026-08-01T00:00:00.000Z"
+  },
+  "redacted": true,
+  "totals": {
+    "features": 3,
+    "invocations": 11,
+    "designed": 4,
+    "unplanned": 7,
+    "unplannedPerFeature": 2.3333333333333335,
+    "landedClean": 0,
+    "minutes": 615,
+    "tokens": 8260338
+  },
+  "features": [
+    {
+      "feature": "f-37b43fe2",
+      "invocations": 8,
+      "designed": 2,
+      "unplanned": 6,
+      "minutes": 365,
+      "tokens": 5292544,
+      "agents": 47,
+      "landedClean": false,
+      "interviewed": false,
+      "runs": [
+        {
+          "outcome": "needs-clarification",
+          "disposition": "unplanned",
+          "phase": "plan",
+          "interviewed": false,
+          "minutes": 10,
+          "agents": 1,
+          "tokens": 150884,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "awaiting-plan-approval",
+          "disposition": "designed",
+          "phase": "plan",
+          "interviewed": false,
+          "minutes": 16,
+          "agents": 2,
+          "tokens": 277473,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "blocked",
+          "disposition": "unplanned",
+          "phase": "loop",
+          "interviewed": false,
+          "minutes": 19,
+          "agents": 3,
+          "tokens": 273653,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "blocked",
+          "disposition": "unplanned",
+          "phase": "loop",
+          "interviewed": false,
+          "minutes": 15,
+          "agents": 3,
+          "tokens": 244753,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "needs-attention",
+          "disposition": "unplanned",
+          "phase": "loop",
+          "interviewed": false,
+          "minutes": 144,
+          "agents": 18,
+          "tokens": 2033088,
+          "iterations": 3,
+          "conflicts": 5,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "killed",
+          "disposition": "unplanned",
+          "phase": "plan",
+          "interviewed": false,
+          "minutes": 0,
+          "agents": 1,
+          "tokens": 49599,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "awaiting-plan-approval",
+          "disposition": "designed",
+          "phase": "plan",
+          "interviewed": false,
+          "minutes": 17,
+          "agents": 2,
+          "tokens": 289494,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "needs-attention",
+          "disposition": "unplanned",
+          "phase": "loop",
+          "interviewed": false,
+          "minutes": 144,
+          "agents": 17,
+          "tokens": 1973600,
+          "iterations": 3,
+          "conflicts": 8,
+          "escalations": 0,
+          "punted": 0
+        }
+      ]
+    },
+    {
+      "feature": "f-b270e160",
+      "invocations": 2,
+      "designed": 1,
+      "unplanned": 1,
+      "minutes": 228,
+      "tokens": 2658033,
+      "agents": 19,
+      "landedClean": false,
+      "interviewed": false,
+      "runs": [
+        {
+          "outcome": "awaiting-plan-approval",
+          "disposition": "designed",
+          "phase": "plan",
+          "interviewed": false,
+          "minutes": 17,
+          "agents": 2,
+          "tokens": 256288,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        },
+        {
+          "outcome": "needs-attention",
+          "disposition": "unplanned",
+          "phase": "loop",
+          "interviewed": false,
+          "minutes": 211,
+          "agents": 17,
+          "tokens": 2401745,
+          "iterations": 3,
+          "conflicts": 1,
+          "escalations": 0,
+          "punted": 0
+        }
+      ]
+    },
+    {
+      "feature": "f-bafadb6b",
+      "invocations": 1,
+      "designed": 1,
+      "unplanned": 0,
+      "minutes": 22,
+      "tokens": 309761,
+      "agents": 2,
+      "landedClean": false,
+      "interviewed": false,
+      "runs": [
+        {
+          "outcome": "awaiting-plan-approval",
+          "disposition": "designed",
+          "phase": "plan",
+          "interviewed": false,
+          "minutes": 22,
+          "agents": 2,
+          "tokens": 309761,
+          "iterations": null,
+          "conflicts": 0,
+          "escalations": 0,
+          "punted": 0
+        }
+      ]
+    }
+  ]
+}

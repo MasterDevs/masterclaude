@@ -56,6 +56,22 @@ Routed per phase by what the phase actually demands:
 
 When a step crosses a sensitivity tripwire — auth, crypto/secrets, payments, PII, access control, trust boundaries — the Architect flags it in the plan so the engineer and reviewer both treat it as must-not-break.
 
+## Is it working?
+
+The design makes a falsifiable claim — front-loading your attention buys uninterrupted time without
+costing quality — so it ships with the instruments to check it:
+
+```bash
+node scripts/run-report.mjs        # unplanned stops per feature, from real runs
+node scripts/loop-scenarios.mjs    # control-flow regression test, free and instant
+```
+
+`run-report.mjs` reads workflow state Claude Code already writes, so every feature you run is a free
+data point and it works retroactively. The number to watch is **unplanned stops per feature**: a clean
+feature is one designed stop (interview + plan gate) and zero unplanned. The pre-interview baseline was
+**2.3 unplanned stops per feature, with 0 of 3 features landing clean** — see
+[`evals/BASELINE.md`](../../evals/BASELINE.md).
+
 ## The Playbook (self-learning)
 
 Agents share a knowledge base — per-domain **pattern catalogs** (detection recipes: a smell to match, an overfit guard to honor), per-lens **reviewer lessons**, and a **refactor backlog**. It learns in two lanes:
