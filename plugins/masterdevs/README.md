@@ -83,6 +83,23 @@ lines, and structured as: the bottom line → what needs you (each with a recomm
 you say nothing) → one line each for the record. If nothing needs you, it says so in a line — that's the
 win condition.
 
+## Developing this plugin — read this first
+
+**The two halves load differently, and they can silently disagree.**
+
+| | When it loads | Consequence |
+|---|---|---|
+| `workflows/feature-loop.js` | read from disk at invocation | edits take effect on the **next run** |
+| `skills/*/SKILL.md`, `agents/*.md` | loaded into the Claude Code session at start | edits do nothing until a **new session** |
+
+This has already bitten once: three shipped versions of skill-side work — the interview, the report
+redesign, the phase commands — sat dormant for a day while the workflow half ran current code. Every run
+looked healthy. The only tell was `interviewed: false` in the run data.
+
+**After changing a skill or agent file, start a new session before testing.** Confirm the new text
+actually loaded by checking that a command you added is present. `scripts/run-report.mjs` also reports
+whether runs were interviewed, which is the cheapest way to catch this from the outside.
+
 ## Is it working?
 
 The design makes a falsifiable claim — front-loading your attention buys uninterrupted time without
