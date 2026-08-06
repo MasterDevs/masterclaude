@@ -22,6 +22,54 @@ result field that quietly stops being populated, a mutating agent scheduled agai
 
 **Run it after any change to the workflow script.** It cannot judge agent output — no model runs.
 
+### How much does it actually catch?
+
+Measured by mutation testing — deliberately breaking the loop and checking the suite goes red.
+**15 of 15 mutations caught**, including every one that would restore a bug this design exists to fix:
+
+| Mutation | |
+|---|---|
+| Round cap 2 → 5 (re-introduce the churn) | caught |
+| Merge `mustFix` and `polish` (nits buy rounds again) | caught |
+| Stop obeying the conflict break | caught |
+| Let the Iterate agent prolong the loop | caught |
+| Move the verify-fix inside the parallel block (concurrency hazard) | caught |
+| Make an escalation halt the run | caught |
+| Ship post-verify fixes unreviewed | caught |
+| Ignore the confirmed intent in Refine | caught |
+| Drop the `soWhat` rule from the reviewer prompt | caught |
+| Remove `soWhat` from the schemas | caught |
+| Always claim verify passed | caught |
+| …plus caps, exits, and channel collection | caught |
+
+Re-measure it yourself — the checker is committed:
+
+```bash
+node scripts/mutation-check.mjs      # breaks the loop 15 ways, asserts the suite goes red
+```
+
+Add a mutation there whenever you add a behavior worth protecting; it is the only check on whether the
+scenario you wrote alongside it does anything.
+
+This number is worth re-measuring when scenarios are added. An earlier version of this suite passed
+12/12 while silently missing three mutations — including the round cap, the single most important
+behavior it claimed to protect. Scenarios that assert on a *downstream symptom* rather than the
+mechanism give false confidence; a green suite you can't trust is worse than no suite.
+
+Two design rules came out of that:
+
+- **Assert the mechanism, not a side effect.** The old conflict scenario checked that Polish was
+  skipped — but Polish is separately guarded, so deleting the conflict break changed nothing observable.
+- **Make every other signal say "keep going."** A cap is only tested when it is the *only* thing that
+  can stop the loop.
+
+### Schema conformance
+
+Every stub return is validated against the real schema the workflow declares for that call, so stub
+drift and schema breakage both fail loudly. A separate scenario asserts the *contract* itself — that
+`soWhat` stays required, that `mustFix` and `polish` stay separate — because validation alone cannot
+notice a schema being loosened; the stub would still supply the dropped field.
+
 ## Tier 2 — real-run metrics
 
 ```bash

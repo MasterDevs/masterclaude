@@ -45,14 +45,57 @@ const iter = (o) => ({ decision: 'stop', mustFix: [], polish: [], conflicts: [],
 
 const LOOP_ARGS = { brief: 'b', playbookDir: '/pb', runDir: '/run', startFrom: 'implement', approved: APPROVED, userReviewers: [] }
 
+// ── schema validation ───────────────────────────────────────────────────────
+// Stubs are fiction, and fiction drifts. Every stub return is checked against the REAL schema the
+// workflow declares for that agent call, so two different bugs surface: a stub that stops resembling
+// what an agent returns, and a schema that gets broken in feature-loop.js. Without this, a required
+// field can be deleted from the schema and every scenario still passes.
+function validate(value, schema, p) {
+  const errs = []
+  const walk = (v, s, at) => {
+    if (!s || typeof s !== 'object') return
+    if (s.type === 'object') {
+      if (v === null || typeof v !== 'object' || Array.isArray(v)) return errs.push(`${at}: expected object`)
+      for (const r of s.required || []) if (!(r in v)) errs.push(`${at}.${r}: missing required field`)
+      if (s.additionalProperties === false) {
+        for (const k of Object.keys(v)) if (!(s.properties || {})[k]) errs.push(`${at}.${k}: not allowed by schema`)
+      }
+      for (const [k, sub] of Object.entries(s.properties || {})) if (k in v) walk(v[k], sub, `${at}.${k}`)
+    } else if (s.type === 'array') {
+      if (!Array.isArray(v)) return errs.push(`${at}: expected array`)
+      v.forEach((item, i) => walk(item, s.items, `${at}[${i}]`))
+    } else if (s.type === 'string') {
+      if (typeof v !== 'string') errs.push(`${at}: expected string`)
+      else if (s.enum && !s.enum.includes(v)) errs.push(`${at}: "${v}" not one of ${s.enum.join('|')}`)
+    } else if (s.type === 'integer') {
+      if (!Number.isInteger(v)) errs.push(`${at}: expected integer`)
+    } else if (s.type === 'boolean') {
+      if (typeof v !== 'boolean') errs.push(`${at}: expected boolean`)
+    }
+  }
+  walk(value, schema, p)
+  return errs
+}
+
 async function drive(args, responder) {
   const calls = []
-  const agent = async (prompt, opts) => { calls.push(opts.label); return responder(opts.label, prompt) }
+  const schemaErrors = []
+  const schemas = {}
+  const agent = async (prompt, opts) => {
+    calls.push(opts.label)
+    schemas[opts.label] = opts.schema
+    const out = await responder(opts.label, prompt)
+    // null is a legal agent result (the workflow handles it); anything else must match the contract.
+    if (out != null && opts.schema) schemaErrors.push(...validate(out, opts.schema, opts.label))
+    return out
+  }
   const parallel = async (thunks) =>
     Promise.all(thunks.map(async (t) => { try { return await t() } catch { return null } }))
   const result = await wf(args, agent, parallel, () => {}, () => {}, undefined)
-  return { calls, result }
+  return { calls, result, schemaErrors, schemas }
 }
+
+const rounds = (calls) => calls.filter((c) => /^implement:\d+$/.test(c)).length
 
 // ── scenarios ───────────────────────────────────────────────────────────────
 // Each asserts on the OUTCOME and the AGENT SEQUENCE — the two things a control-flow bug corrupts.
@@ -105,18 +148,60 @@ const scenarios = [
     ],
   },
   {
-    name: 'plan conflict — stops for the user, skips Polish',
+    // The cap is the whole point of the churn fix. Every other signal here screams "keep going" —
+    // high findings, non-empty mustFix, an Iterate agent voting continue every round — so the ONLY
+    // thing that can stop this loop is MAX_ITERATIONS. 2 is the design contract, deliberately written
+    // as a literal: if someone changes the constant, this must fail and make them think about it.
+    name: 'loop is capped even when every signal says continue',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['high', 'high']) :
+      iter({ decision: 'continue', mustFix: ['still broken'], polish: [] }),
+    expect: ({ result, calls }) => [
+      [result.iterations === 2, `the loop must cap at 2 rounds, ran ${result.iterations}`],
+      [rounds(calls) === 2, `expected 2 implement rounds, got ${rounds(calls)}`],
+    ],
+  },
+  {
+    // Previously this only asserted Polish was skipped — which is separately guarded by
+    // `!conflicts.length`, so deleting the conflict break changed nothing observable. Now there is
+    // blocking work outstanding too, so the ONLY reason to stop after round 1 is the conflict itself.
+    name: 'plan conflict — stops the loop dead, even with work outstanding',
     args: LOOP_ARGS,
     responder: (l) =>
       l.startsWith('implement') ? impl :
       l.startsWith('refactor') ? refac :
       l.startsWith('verify') ? vpass :
-      l.startsWith('review') ? find(['medium']) :
-      iter({ conflicts: [{ finding: 'f', conflictsWith: 'req' }], polish: ['p'] }),
+      l.startsWith('review') ? find(['high']) :
+      iter({ decision: 'continue', mustFix: ['would otherwise continue'],
+             conflicts: [{ finding: 'f', conflictsWith: 'req' }], polish: ['p'] }),
     expect: ({ result, calls }) => [
       [result.conflicts.length === 1, 'the conflict must come back'],
+      [result.iterations === 1, `must stop at round 1 on a conflict, ran ${result.iterations}`],
+      [rounds(calls) === 1, `must not start another round, got ${rounds(calls)} implement rounds`],
       [result.outcome === 'needs-attention', `outcome should be needs-attention, got ${result.outcome}`],
       [!calls.includes('polish'), 'Polish must not run while a conflict is unresolved'],
+    ],
+  },
+  {
+    // The agent may vote to stop, and that vote is binding even when there is blocking work left —
+    // it has context the script doesn't. Without blocking work present, the no-work exit would stop
+    // the loop anyway and this would prove nothing.
+    name: "agent's stop vote is honored even with blocking work outstanding",
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['high']) :
+      iter({ decision: 'stop', mustFix: ['deliberately left'], polish: [] }),
+    expect: ({ result, calls }) => [
+      [result.iterations === 1, `a stop vote must end the loop, ran ${result.iterations}`],
+      [rounds(calls) === 1, `must not start another round, got ${rounds(calls)} implement rounds`],
+      [result.unresolvedBlocking.length === 1, 'the unaddressed high finding must be reported, not hidden'],
     ],
   },
   {
@@ -226,6 +311,34 @@ const scenarios = [
     ],
   },
   {
+    // Validation above proves stubs MATCH the schemas — it cannot notice a schema being loosened,
+    // because the stub would still supply the dropped field. These assert the contract itself, so
+    // deleting a required field from feature-loop.js fails here instead of silently degrading every
+    // future report back into code-speak.
+    name: 'schema contract — the plain-language fields stay required',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['low']) : iter({}),
+    expect: ({ schemas }) => {
+      const findings = schemas['review:reviewer:1']?.properties?.findings?.items?.required || []
+      const impl1 = schemas['implement:1']?.properties || {}
+      const esc = impl1.escalations?.items?.required || []
+      const punt = impl1.punted?.items?.required || []
+      const it = schemas['iterate:1']?.properties || {}
+      return [
+        [findings.includes('soWhat'), 'findings must require soWhat — it is what the human reads'],
+        [findings.includes('severity'), 'findings must require severity — the loop routes on it'],
+        [esc.includes('soWhat'), 'escalations must require soWhat'],
+        [punt.includes('item') && punt.includes('reason'), 'punted items must require item and reason'],
+        [(it.deferred?.items?.required || []).includes('soWhat'), 'deferred items must require soWhat'],
+        [!!it.mustFix && !!it.polish, 'Iterate must keep mustFix and polish separate — merging them restores the churn'],
+      ]
+    },
+  },
+  {
     name: 'standalone — no inlined args, falls back to loader agents',
     args: { brief: 'b', playbookDir: '/pb', runDir: '/run', startFrom: 'implement' },
     responder: (l) =>
@@ -258,7 +371,11 @@ for (const s of scenarios) {
     failed++
     continue
   }
-  const checks = s.expect({ ...out, prompt })
+  // Schema conformance is asserted for every scenario, not opt-in per scenario.
+  const checks = [
+    [out.schemaErrors.length === 0, `stub/schema mismatch:\n      ${out.schemaErrors.join('\n      ')}`],
+    ...s.expect({ ...out, prompt }),
+  ]
   const bad = checks.filter(([ok]) => !ok)
   if (bad.length) {
     failed++
