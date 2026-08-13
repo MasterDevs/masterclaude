@@ -567,8 +567,13 @@ if (reviewStale && verifyPassed && !conflicts.length) {
 }
 
 const unresolvedBlocking = lastFindings.filter((f) => BLOCKING.has(f.severity))
+// An escalation is something an agent hit, resolved defensibly, and kept going past — it is report
+// content, not a verdict. Counting it here made `passed` nearly unreachable: across 22 real runs only
+// 2 landed clean, and 10 of the 15 `needs-attention` results had no conflict and no failure behind
+// them, just escalations. That mislabels a successful run as one needing you, which is the exact cost
+// this design exists to avoid. A genuine dead end returns `blocked` long before reaching this line.
 return {
-  outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0 && escalations.length === 0)
+  outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0)
     ? 'passed' : 'needs-attention',
   iterations: iteration,
   changedFiles,

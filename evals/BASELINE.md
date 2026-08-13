@@ -12,7 +12,37 @@ without naming a branch. Regenerate with:
 node scripts/run-report.mjs --since 2026-08-01 --snapshot --label pre-interview-v0.4.1
 ```
 
-## Headline
+## ⚠️ Rescored 2026-08-13 — do not compare the raw numbers below to current output
+
+The tables on this page use the **original** scoring, which counted two things as failures that aren't:
+
+- **Questions asked during the interview**, before the run ever went dark. Those are the design working.
+- **Escalations** — things an agent hit, resolved defensibly, and kept going past. Any escalation forced
+  `needs-attention`, so `passed` was nearly unreachable: 2 of 22 runs.
+
+`run-report.mjs` now derives each run's disposition from what happened rather than from its label, so
+old runs rescore too. Both sides measured the same way:
+
+| | Baseline (3 features, Aug 1–6) | v0.6–0.8 (12 features) |
+|---|---|---|
+| **Unplanned stops per feature** | 2.3 | **1.0** |
+| Interview questions per feature | 0.3 | 0.8 |
+| Features landing clean | 0/3 | **4/12** |
+
+Rescoring left this particular window unchanged at 2.3 — those three features failed on conflicts and
+dead ends, which still count. Against the wider set of **every run before 2026-08-06** (9 features,
+spanning older designs) the baseline is **1.8 unplanned per feature, 1/9 clean**. Both comparisons
+point the same way: attention moved from after the handoff to before it, which is the trade the design
+is built on.
+
+Snapshots: [`2026-08-13-…-pre-interview-v0.4.1-rescored.json`](./results/2026-08-13-v0.8.0-pre-interview-v0.4.1-rescored.json)
+and [`2026-08-13-…-v0.6-0.8-interviewed.json`](./results/2026-08-13-v0.8.0-v0.6-0.8-interviewed.json).
+The original 2026-08-05 snapshot is kept as the historical record and is marked `⚠ old scoring` in
+`--history`. Re-take an old window with `--since X --until Y`.
+
+The raw figures below are what was measured on 2026-08-05, under the original scoring.
+
+## Headline (original scoring — superseded)
 
 | Metric | Value |
 |---|---|

@@ -111,9 +111,13 @@ node scripts/loop-scenarios.mjs    # control-flow regression test, free and inst
 ```
 
 `run-report.mjs` reads workflow state Claude Code already writes, so every feature you run is a free
-data point and it works retroactively. The number to watch is **unplanned stops per feature**: a clean
-feature is one designed stop (interview + plan gate) and zero unplanned. The pre-interview baseline was
-**2.3 unplanned stops per feature, with 0 of 3 features landing clean** — see
+data point and it works retroactively. The number to watch is **unplanned stops per feature** — times
+the loop failed to stay dark. Questions asked *during* the interview are counted separately, because
+those are the design working, not failing.
+
+Measured over 12 features on v0.6–0.8 against the pre-interview baseline: **2.3 → 1.0 unplanned stops
+per feature**, features landing clean **0/3 → 4/12**, while interview questions rose 0.3 → 0.8 per
+feature. Attention moved from after the handoff to before it. See
 [`evals/BASELINE.md`](../../evals/BASELINE.md).
 
 ## The Playbook (self-learning)

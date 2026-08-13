@@ -25,13 +25,15 @@ result field that quietly stops being populated, a mutating agent scheduled agai
 ### How much does it actually catch?
 
 Measured by mutation testing — deliberately breaking the loop and checking the suite goes red.
-**15 of 15 mutations caught**, including every one that would restore a bug this design exists to fix:
+**17 of 17 mutations caught**, including every one that would restore a bug this design exists to fix:
 
 | Mutation | |
 |---|---|
 | Round cap 2 → 5 (re-introduce the churn) | caught |
 | Merge `mustFix` and `polish` (nits buy rounds again) | caught |
 | Stop obeying the conflict break | caught |
+| Let an escalation alone fail the run | caught |
+| Stop letting a conflict fail the run | caught |
 | Let the Iterate agent prolong the loop | caught |
 | Move the verify-fix inside the parallel block (concurrency hazard) | caught |
 | Make an escalation halt the run | caught |
@@ -45,7 +47,7 @@ Measured by mutation testing — deliberately breaking the loop and checking the
 Re-measure it yourself — the checker is committed:
 
 ```bash
-node scripts/mutation-check.mjs      # breaks the loop 15 ways, asserts the suite goes red
+node scripts/mutation-check.mjs      # breaks the loop 17 ways, asserts the suite goes red
 ```
 
 Add a mutation there whenever you add a behavior worth protecting; it is the only check on whether the
@@ -88,9 +90,16 @@ design is judged by has to be committed, or it quietly evaporates:
 # after shipping a version, snapshot the window it covers
 node scripts/run-report.mjs --since 2026-08-06 --snapshot --label v0.6.0
 
+# re-measure an OLD version once newer runs have landed — --since alone would sweep them in
+node scripts/run-report.mjs --since 2026-08-01 --until 2026-08-06 --snapshot --label v0.4.1
+
 # then, any time
 node scripts/run-report.mjs --history
 ```
+
+Each snapshot records a `scoring` version. When the disposition rules change, `--history` marks older
+snapshots `⚠ old scoring` rather than charting two different definitions on the same axis — re-take
+them with `--since`/`--until` to make them comparable again.
 
 Snapshots land in `evals/results/<date>-v<version>-<label>.json` and are committed.
 
@@ -109,13 +118,29 @@ Two things worth knowing about the file format:
 **This is the primary instrument.** Every feature you run is a free data point, and it works
 retroactively because it reads workflow state Claude Code already writes. No fixtures, no extra spend.
 
-The number that matters is **unplanned stops per feature**. A clean feature is one designed stop (the
-interview plus plan gate, in one sitting) and zero unplanned ones. See [BASELINE.md](./BASELINE.md) for
-the pre-interview measurement: **2.3 unplanned stops per feature, 0 of 3 features landing clean.**
+The number that matters is **unplanned stops per feature** — times the loop failed to stay dark. A
+clean feature is one designed stop (the interview plus plan gate, in one sitting) and zero unplanned
+ones. See [BASELINE.md](./BASELINE.md): **2.3 → 1.0 per feature**, clean features **0/3 → 4/12**.
 
-Secondary: share of features ending `passed`, and `conflicts` — conflicts are scope disagreements
-surfacing after the run went dark, which is exactly what the interview is meant to prevent. Conflicts
-staying high after a real interview means the interview isn't asking the right questions.
+Each run is scored by **what happened, not by the label it was written with** — the label logic has
+changed at least once, and old runs keep whatever they were stamped with. Deriving keeps history
+comparable across versions. The five dispositions:
+
+| | |
+|---|---|
+| `designed` | the plan gate — the one stop the design intends |
+| `interview` | a question asked before the run went dark — the design working |
+| `clean` | finished with nothing outstanding |
+| `killed` | you stopped it; a choice, not a loop failure |
+| `unplanned` | a plan conflict, a dead end, or a red verification |
+
+An **escalation does not make a run unplanned.** An agent hit something, resolved it defensibly, and
+kept going; that belongs in the report, not the verdict. Treating it as a stop is what made `passed`
+nearly unreachable — 2 of 22 runs before this was fixed.
+
+Secondary: share of features landing clean, and `conflicts` — scope disagreements surfacing after the
+run went dark, which is exactly what the interview is meant to prevent. Conflicts staying high after a
+real interview means the interview isn't asking the right questions.
 
 Tokens and wall clock are deliberately *not* the target. The design trades them for uninterrupted time.
 

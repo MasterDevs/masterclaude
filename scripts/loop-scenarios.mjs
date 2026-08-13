@@ -187,6 +187,27 @@ const scenarios = [
     ],
   },
   {
+    // Companion to the scenario above, and to 'escalate-and-continue'. Together the three pin the
+    // verdict rule: an escalation is report content, a conflict is a stop. Here the conflict must be
+    // the ONLY thing wrong — verify green, nothing blocking outstanding — or `unresolvedBlocking`
+    // would fail the run on its own and deleting the conflict check would change nothing observable.
+    name: 'a conflict alone fails the run, with every other signal green',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['low']) :
+      iter({ conflicts: [{ finding: 'f', conflictsWith: 'req' }] }),
+    expect: ({ result }) => [
+      [result.verifyPassed === true, 'verify must be green, or it would fail the run by itself'],
+      [result.unresolvedBlocking.length === 0, 'nothing blocking may be outstanding, for the same reason'],
+      [result.conflicts.length === 1, 'the conflict must come back'],
+      [result.outcome === 'needs-attention',
+        `a scope clash is yours to decide — got ${result.outcome}`],
+    ],
+  },
+  {
     // The agent may vote to stop, and that vote is binding even when there is blocking work left —
     // it has context the script doesn't. Without blocking work present, the no-work exit would stop
     // the loop anyway and this would prove nothing.
@@ -251,8 +272,9 @@ const scenarios = [
       l.startsWith('review') ? find(['low']) : iter({ polish: ['p'] }),
     expect: ({ result }) => [
       [result.escalations.length >= 1, 'the escalation must surface'],
-      [result.outcome === 'needs-attention', 'an escalation means a human should look'],
-      [result.verifyPassed === true, 'but the run should have finished its work'],
+      [result.verifyPassed === true, 'the run should have finished its work'],
+      [result.outcome === 'passed',
+        `an escalation is reported, not a verdict — the run finished clean, got ${result.outcome}`],
     ],
   },
   {
