@@ -29,7 +29,9 @@ One `masterdevs:architect` agent on `opus`. Give it the settled ask, the Playboo
 instruction to resolve the design — inline the concrete guidance per step so an engineer never has to
 open the pattern catalog.
 
-It returns `{summary, lenses, steps: [{title, intent, files, guidance, acceptance}]}`.
+It returns `{summary, lenses, claims, steps: [{title, intent, files, guidance, acceptance}]}`.
+
+`claims` are the facts about existing code the plan depends on — call-site counts, a symbol existing with the signature used, an invariant already permitting what's prescribed — each with the `check` that settles it and what breaks `ifWrong`.
 
 ## Step 4 — Present it for argument, not approval
 
@@ -40,7 +42,7 @@ There's no build behind this command, so don't ask "approve?" — ask what's wro
 - **The design calls worth arguing with**: where a pattern was chosen over an alternative, where existing
   code is being extended rather than replaced, anything the user might disagree with. This is the part
   with value; a plan nobody argues with was not worth reading.
-- **What this plan assumes** — the assumptions that, if wrong, invalidate it.
+- **What this plan assumes** — read these straight off `claims`, one line each: the assumption and what breaks if it's false. Then **offer to check them** against the code before the user argues with the design; a plan resting on a wrong call-site count is often wrong in shape, not just in detail. (`/masterdevs:feature` runs this check automatically; here it's yours to ask for.)
 
 Offer to save it to `$DATA_DIR/plans/<slug>-<date>.md` if they want it, and mention that
 `/masterdevs:feature` can take it from here — it will re-plan against its own interview, so a plan

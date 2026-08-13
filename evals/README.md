@@ -25,7 +25,7 @@ result field that quietly stops being populated, a mutating agent scheduled agai
 ### How much does it actually catch?
 
 Measured by mutation testing — deliberately breaking the loop and checking the suite goes red.
-**17 of 17 mutations caught**, including every one that would restore a bug this design exists to fix:
+**25 of 25 mutations caught**, including every one that would restore a bug this design exists to fix:
 
 | Mutation | |
 |---|---|
@@ -34,6 +34,11 @@ Measured by mutation testing — deliberately breaking the loop and checking the
 | Stop obeying the conflict break | caught |
 | Let an escalation alone fail the run | caught |
 | Stop letting a conflict fail the run | caught |
+| Skip the plan fact-check entirely | caught |
+| Let a refuted claim through unrevised | caught |
+| Plan-revision cap 1 → 5 | caught |
+| Swallow the claim verdicts before the gate | caught |
+| Ignore the user-named verification data | caught |
 | Let the Iterate agent prolong the loop | caught |
 | Move the verify-fix inside the parallel block (concurrency hazard) | caught |
 | Make an escalation halt the run | caught |
@@ -47,7 +52,7 @@ Measured by mutation testing — deliberately breaking the loop and checking the
 Re-measure it yourself — the checker is committed:
 
 ```bash
-node scripts/mutation-check.mjs      # breaks the loop 17 ways, asserts the suite goes red
+node scripts/mutation-check.mjs      # breaks the loop 25 ways, asserts the suite goes red
 ```
 
 Add a mutation there whenever you add a behavior worth protecting; it is the only check on whether the

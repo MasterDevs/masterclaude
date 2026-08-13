@@ -39,6 +39,7 @@ const intent = input.intent || null
 const intentBlock = !intent ? '' : (typeof intent === 'string' ? intent : [
   ['Outcome', intent.outcome], ['User', intent.user], ['Why now', intent.whyNow],
   ['Success', intent.success], ['Constraint', intent.constraint], ['Out of scope', intent.outOfScope],
+  ['Verify on', intent.verifyOn],
 ].filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n'))
 
 // Two rounds, not three. Measured across real runs: rounds 2 and 3 cost 50-67% of the budget while the
@@ -47,6 +48,7 @@ const intentBlock = !intent ? '' : (typeof intent === 'string' ? intent : [
 // buys another round only for critical/high findings or a failed verify — nits go to the Polish pass.
 const MAX_ITERATIONS = 2       // outer Implement→Refactor→(Verify ∥ Review)→Iterate loop
 const MAX_VERIFY_FIX = 2       // inner Verify↔Implement loop
+const MAX_PLAN_REVISIONS = 1   // Plan↔fact-check loop, before the human ever sees the plan
 const BLOCKING = new Set(['critical', 'high'])
 const reqPath = runDir ? `${runDir}/requirements.md` : null
 const planFilePath = runDir ? `${runDir}/plan.md` : null
@@ -68,20 +70,41 @@ const REFINE_SCHEMA = {
       },
     } },
     verifyMethod: {
-      type: 'object', additionalProperties: false, required: ['approach', 'riskySteps'],
+      type: 'object', additionalProperties: false, required: ['approach', 'dataSource', 'riskySteps'],
       properties: {
         approach: { type: 'string' },                 // how Verify should exercise this feature live
+        // WHERE the proof comes from. The most common way a finished run fails to prove anything is
+        // that the check needed data this checkout does not have: "confirmed only against the local
+        // database, which holds a single deal", "needs real customer deal data that does not exist
+        // locally". Naming the source makes that gap visible at the approval gate instead of at the end.
+        dataSource: { type: 'string' },
         riskySteps: { type: 'array', items: { type: 'string' } }, // destructive/irreversible — need approval
       },
     },
   },
 }
 
+// Facts about the code that the plan rests on. A plan built on a false one sends an engineer down a
+// dead end hours later with nobody watching — measured across real runs, the plan asserting something
+// untrue about the code is one of the largest sources of mid-run surprise: it named three readers of a
+// value where there were five, prescribed an attribute that exists only on IPv6 (crashing every IPv4
+// call), claimed invariants "already exempt" something they didn't, and estimated four affected test
+// files where there were roughly five hundred failing tests. Every one of those is settleable by a grep.
+const CLAIMS = { type: 'array', items: {
+  type: 'object', additionalProperties: false, required: ['claim', 'check', 'ifWrong'],
+  properties: {
+    claim: { type: 'string' },    // a falsifiable statement about the code as it exists TODAY
+    check: { type: 'string' },    // the exact command or file+symbol read that settles it
+    ifWrong: { type: 'string' },  // which step breaks, and how
+  },
+} }
+
 const PLAN_SCHEMA = {
-  type: 'object', additionalProperties: false, required: ['summary', 'steps', 'lenses'],
+  type: 'object', additionalProperties: false, required: ['summary', 'steps', 'lenses', 'claims'],
   properties: {
     summary: { type: 'string' },
     lenses: { type: 'array', items: { type: 'string' } },
+    claims: CLAIMS,
     steps: { type: 'array', items: {
       type: 'object', additionalProperties: false, required: ['title', 'intent', 'files', 'acceptance'],
       properties: {
@@ -90,6 +113,34 @@ const PLAN_SCHEMA = {
         // Resolved, inlined design guidance so the engineer never loads the catalog.
         guidance: { type: 'array', items: { type: 'string' } },
         acceptance: { type: 'array', items: { type: 'string' } },
+      },
+    } },
+  },
+}
+
+const CLAIMS_RULE =
+  `Every plan rests on facts about the code as it exists TODAY, and a plan built on a false one sends an ` +
+  `engineer down a dead end hours later with nobody watching. List those facts in \`claims\`: every ` +
+  `falsifiable statement your steps depend on — how many call sites read a value, that a symbol you name ` +
+  `exists with the signature you use, that an existing invariant already permits what you prescribe, how ` +
+  `far the change actually reaches. For each give the exact \`check\` that settles it (a grep AND the count ` +
+  `you expect, a file and symbol to read) and \`ifWrong\` — which step breaks, and how.\n` +
+  `These are checked against the real code before the human sees this plan, so a claim you are UNSURE of ` +
+  `is better listed than omitted — listing it is how you find out. Do not list restatements of the ` +
+  `requirements or of your own design intent; only statements about existing code that could turn out false.`
+
+const CLAIM_CHECK_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['results'],
+  properties: {
+    results: { type: 'array', items: {
+      type: 'object', additionalProperties: false, required: ['claim', 'verdict', 'evidence'],
+      properties: {
+        claim: { type: 'string' },
+        // `unverifiable` is first-class on purpose: some claims genuinely cannot be settled from this
+        // checkout, and "I am assuming this and could not confirm it here" is a far better thing for
+        // the user to read BEFORE approving than a confident guess.
+        verdict: { type: 'string', enum: ['verified', 'refuted', 'unverifiable'] },
+        evidence: { type: 'string' },
       },
     } },
   },
@@ -230,6 +281,7 @@ const CONTEXT_DISCIPLINE =
 // 'implement') loads the approved (possibly human-edited) artifacts and runs the Implement→Iterate loop.
 const startFrom = input.startFrom || 'refine'
 let refine, plan
+let claimChecks = null   // per-claim verdicts, surfaced at the approval gate
 
 if (startFrom === 'implement') {
   // ── Resume after plan approval: use the artifacts the skill already read, else load them ──
@@ -272,6 +324,12 @@ if (startFrom === 'implement') {
     `failure / edge behaviors with how to prove each — and a \`verifyMethod\`: how to exercise this feature live ` +
     `(app, endpoints, integration), listing any \`riskySteps\` that are destructive/irreversible and must not run ` +
     `without human approval.\n` +
+    `\`verifyMethod.dataSource\` must name WHERE the proof comes from — the fixture, seeded database, named ` +
+    `record, or service — and state plainly if this checkout cannot reach it. ` +
+    (intent && intent.verifyOn
+      ? `The user named it: "${intent.verifyOn}". Honor that. If it is not reachable from here, say so in ` +
+        `\`dataSource\` rather than silently substituting something else.\n`
+      : `Do not claim a check is possible locally without saying what it runs against.\n`) +
     (reqPath ? `Also write a concise human-readable version to ${reqPath}, ending with the EXACT structured result in a fenced \`\`\`json block (so a later call can reload it).\n` : ``) + CONTEXT_DISCIPLINE,
     { label: 'refine', phase: 'Refine', schema: REFINE_SCHEMA, agentType: 'general-purpose', model: 'sonnet' }
   )
@@ -292,11 +350,60 @@ if (startFrom === 'implement') {
     `Prioritize, in order: correct design patterns, modularity, reusability, maintainability, readability. RESOLVE ` +
     `the design — for each step inline concrete \`guidance\` (the pattern/refactor and HOW to apply it here), so the ` +
     `engineer never loads the catalog. Reuse existing abstractions over inventing new ones. Be TERSE — a spec, not ` +
-    `an essay; the plan is re-read each iteration. Order steps for a single engineer to build in one pass.\n` +
+    `an essay; the plan is re-read each iteration. Order steps for a single engineer to build in one pass.\n\n` +
+    CLAIMS_RULE + `\n` +
     (planFilePath ? `Also write a concise human-readable plan to ${planFilePath}, ending with the EXACT structured result in a fenced \`\`\`json block (so the approved plan can be reloaded, and a human can edit it before approving).\n` : ``),
     { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'opus' }
   )
   if (!plan || !plan.steps || plan.steps.length === 0) throw new Error('Plan produced no steps')
+
+  // ── Fact-check the plan BEFORE the human sees it ──────────────────────────
+  // This is the one place work is deliberately added to the window the user is waiting in. It buys
+  // that back many times over: every claim settled here is a claim that would otherwise be discovered
+  // false hours later, in the dark, by an agent that has to improvise around it alone.
+  let planRevisions = 0
+  while (plan.claims && plan.claims.length) {
+    const checked = await agent(
+      `You are fact-checking an implementation plan BEFORE a human approves it and agents build from it ` +
+      `unattended. You are strictly READ-ONLY: run the checks, read the code, change nothing.\n\n` +
+      `For each claim, run its \`check\` — or a better one, if the stated check is wrong — and return a verdict:\n` +
+      `  verified     the claim holds. Quote the evidence (the count you got, the signature you read).\n` +
+      `  refuted      the claim is false. Say what is actually true.\n` +
+      `  unverifiable it cannot be settled from this checkout (needs production data, a running service,\n` +
+      `               credentials). Say what WOULD settle it.\n\n` +
+      `Be adversarial about counts and names: "three call sites" means exactly three — go count them. A ` +
+      `symbol the plan names must exist, with that name and that signature. An invariant the plan says ` +
+      `"already permits" something must be read, not assumed. Never mark a claim verified because it is ` +
+      `plausible; plausible-but-false is exactly what this step exists to catch. Prefer \`unverifiable\` ` +
+      `over a guess.\n\n` +
+      `Claims:\n${JSON.stringify(plan.claims, null, 2)}\n` + CONTEXT_DISCIPLINE,
+      { label: `verify-plan:${planRevisions + 1}`, phase: 'Plan', schema: CLAIM_CHECK_SCHEMA,
+        agentType: 'general-purpose', model: 'sonnet' }
+    )
+    claimChecks = (checked && checked.results) || []
+    const refuted = claimChecks.filter((r) => r.verdict === 'refuted')
+    const unverifiable = claimChecks.filter((r) => r.verdict === 'unverifiable')
+    log(`plan claims: ${claimChecks.length - refuted.length - unverifiable.length} verified, ` +
+      `${refuted.length} refuted, ${unverifiable.length} unverifiable`)
+    if (!refuted.length || planRevisions >= MAX_PLAN_REVISIONS) break
+
+    // A plan resting on a false premise is often wrong in its structure, not just in that one line —
+    // so this goes back to the Architect rather than being patched in place.
+    planRevisions++
+    log(`${refuted.length} claim(s) refuted — revising the plan`)
+    const revised = await agent(
+      `Your plan rested on claims about the code that turned out to be FALSE. Revise it.\n\n` +
+      `Refuted claims, with what is actually true:\n${JSON.stringify(refuted, null, 2)}\n\n` +
+      `Previous plan:\n${JSON.stringify(plan, null, 2)}\n\n` +
+      `Rework every step that depended on a refuted claim — the fix is often structural, not a one-line ` +
+      `correction, so do not simply patch the wording. Leave steps that did not depend on them byte-identical. ` +
+      `Return the COMPLETE revised plan.\n\n` + CLAIMS_RULE + `\n` +
+      (planFilePath ? `Rewrite ${planFilePath} with the revised plan, same format as before.\n` : ``),
+      { label: 'plan:revised', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'opus' }
+    )
+    if (!revised || !revised.steps || !revised.steps.length) break
+    plan = revised
+  }
 
   // STOP for human plan approval — the Implement→Iterate loop runs on the next call (startFrom:'implement').
   log('Plan written — stopping for human approval')
@@ -304,6 +411,11 @@ if (startFrom === 'implement') {
     outcome: 'awaiting-plan-approval',
     summary: plan.summary,
     stepCount: plan.steps.length,
+    // What the plan assumed, and which of it survived contact with the code. `unverifiable` entries are
+    // the ones worth the user's eye: the plan is proceeding on an assumption nobody could confirm here.
+    claimChecks,
+    planRevised: planRevisions > 0,
+    dataSource: (refine.verifyMethod && refine.verifyMethod.dataSource) || null,
     requirementsPath: reqPath,
     planPath: planFilePath,
     outputTokens: (typeof budget !== 'undefined' && budget) ? budget.spent() : undefined,

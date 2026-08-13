@@ -28,13 +28,16 @@ const wf = new Function('args', 'agent', 'parallel', 'log', 'phase', 'budget',
 const REFINE = {
   requirements: 'r', openQuestions: [],
   successCriteria: [{ name: 'c1', kind: 'happy', check: 'x' }],
-  verifyMethod: { approach: 'a', riskySteps: [] },
+  verifyMethod: { approach: 'a', dataSource: 'the seeded test fixture', riskySteps: [] },
 }
 const PLAN = {
   summary: 's', lenses: ['correctness'],
+  claims: [{ claim: 'only two call sites read the stamp', check: 'grep -c stamp', ifWrong: 'step 2 misses one' }],
   steps: [{ title: 't', intent: 'i', files: ['f.py'], guidance: ['g'], acceptance: ['a'] }],
 }
 const APPROVED = { refine: REFINE, plan: PLAN }
+const claimsOk = { results: [{ claim: 'only two call sites read the stamp', verdict: 'verified', evidence: '2 matches' }] }
+const claimsBad = { results: [{ claim: 'only two call sites read the stamp', verdict: 'refuted', evidence: 'there are five' }] }
 
 const impl = { status: 'done', changedFiles: ['f.py'], notes: 'n', punted: [{ item: 'smell', reason: 'out of scope' }] }
 const refac = { changedFiles: ['f.py'], applied: [], notes: 'n', punted: [{ item: 'dead helper', reason: 'elsewhere' }] }
@@ -292,27 +295,72 @@ const scenarios = [
     ],
   },
   {
-    name: 'first call WITH confirmed intent — scope arrives settled',
+    name: 'first call WITH confirmed intent — scope and verification arrive settled',
     args: { brief: 'b', playbookDir: '/pb', runDir: '/run',
-      intent: { outcome: 'O', user: 'U', whyNow: 'W', success: 'S', constraint: 'C', outOfScope: 'NOPE' } },
-    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : null),
+      intent: { outcome: 'O', user: 'U', whyNow: 'W', success: 'S', constraint: 'C', outOfScope: 'NOPE',
+        verifyOn: 'deal 867 in the dev database' } },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
     capturePrompt: 'refine',
-    expect: ({ result, prompt }) => [
+    expect: ({ result, prompt, schemas }) => [
       [result.outcome === 'awaiting-plan-approval', `got ${result.outcome}`],
       [/Out of scope: NOPE/.test(prompt), 'the confirmed intent must reach Refine'],
       [/SETTLED/.test(prompt), 'Refine must be told not to reopen scope'],
       [/contradiction you find in the CODE/.test(prompt), 'blocking questions must be narrowed to code surprises'],
+      [/deal 867 in the dev database/.test(prompt),
+        "the user's answer to 'verify on what data' must reach Refine, or it cannot honor it"],
+      // Arriving is not enough — it rides along in the intent block regardless. Refine has to be told
+      // it is binding, or it will quietly verify against whatever is convenient and report success.
+      [/Honor that/.test(prompt) && /silently substituting/.test(prompt),
+        'Refine must be told the named data source is binding, not a suggestion'],
+      [result.dataSource === 'the seeded test fixture', 'the gate must show what verification runs against'],
+      // The claims contract, asserted here because this is where the plan schema is actually declared.
+      [(schemas['plan']?.required || []).includes('claims'), 'the plan must be required to state its claims'],
+      [['claim', 'check', 'ifWrong'].every((k) =>
+        (schemas['plan']?.properties?.claims?.items?.required || []).includes(k)),
+        'a claim needs the statement, the check that settles it, and what breaks if it is false'],
+      [(schemas['refine']?.properties?.verifyMethod?.required || []).includes('dataSource'),
+        'verifyMethod must name where the proof comes from'],
     ],
   },
   {
     name: 'first call WITHOUT intent — falls back to deriving requirements',
     args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
-    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : null),
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
     capturePrompt: 'refine',
     expect: ({ result, prompt }) => [
       [result.outcome === 'awaiting-plan-approval', `got ${result.outcome}`],
       [/Resolve the brief into a clear, terse/.test(prompt), 'must still derive requirements when no interview ran'],
       [!/SETTLED/.test(prompt), 'must not claim settled scope that nobody confirmed'],
+    ],
+  },
+  {
+    name: 'plan claims all check out — no revision, verdicts reach the gate',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
+    expect: ({ result, calls }) => [
+      [calls.includes('verify-plan:1'), 'the plan must be fact-checked before the human sees it'],
+      [!calls.includes('plan:revised'), 'nothing was refuted — the plan must not be rewritten'],
+      [calls.filter((c) => c.startsWith('verify-plan')).length === 1, 'one check is enough when it comes back clean'],
+      [result.planRevised === false, 'the gate must say the plan is the first draft'],
+      [(result.claimChecks || []).length === 1, 'the verdicts must reach the user, not be swallowed'],
+    ],
+  },
+  {
+    // The whole point: a false claim is caught HERE, in the window the user is waiting in, rather than
+    // by an engineer four hours later with nobody to ask. The revision is capped so a stubbornly
+    // refuted claim cannot spin the plan phase — it goes to the user as a caveat instead.
+    name: 'plan claim refuted — revised once, then capped even if still refuted',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' || l === 'plan:revised' ? PLAN
+      : l.startsWith('verify-plan') ? claimsBad : null),
+    expect: ({ result, calls }) => [
+      [calls.filter((c) => c === 'plan:revised').length === 1,
+        `a refuted claim must send the plan back exactly once, got ${calls.filter((c) => c === 'plan:revised').length}`],
+      [calls.filter((c) => c.startsWith('verify-plan')).length === 2,
+        'the revised plan must itself be re-checked'],
+      [result.planRevised === true, 'the gate must say the plan was corrected'],
+      [result.outcome === 'awaiting-plan-approval',
+        `a refuted claim is fixed and reported, never a dead end — got ${result.outcome}`],
     ],
   },
   {

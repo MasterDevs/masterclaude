@@ -30,11 +30,23 @@ The engine is a single RPI-style loop in one worktree — **Refine → Plan → 
 
 **This is the highest-leverage step in the whole command.** Read `${CLAUDE_PLUGIN_ROOT}/references/interview.md` and follow it. It is the shared protocol — `/masterdevs:refine` runs the same one standalone.
 
-In short: skip it only if the brief is already self-contained at ~95% confidence (say so in one line if you do); otherwise open with a hypothesis and a confidence number, ask one question at a time with your guess attached, stop when you can predict the answers to your next three questions, restate in six lines including an explicit **Out of scope**, and take only an explicit yes.
+In short: skip it only if the brief is already self-contained at ~95% confidence (say so in one line if you do); otherwise open with a hypothesis and a confidence number, ask one question at a time with your guess attached, stop when you can predict the answers to your next three questions, restate in seven lines including an explicit **Out of scope** and an explicit **Verify on**, and take only an explicit yes.
 
-Carry the confirmed six-field restate forward as `intent`.
+Carry the confirmed seven-field restate forward as `intent`.
 
-## Step 3 — Refine + Plan (first call, stops for approval)
+## Step 3 — Preflight the checkout
+
+```
+node ${CLAUDE_PLUGIN_ROOT}/scripts/preflight.mjs
+```
+
+Takes seconds and needs no models. It checks the **machine**, not the requirements: are you on a feature branch, is the working tree clean, is this checkout far behind the default branch, plus any project-specific checks in the repo's `.masterdevs/preflight.json` (test-database freshness, migration collisions — whatever that repo needs).
+
+Run it here, before planning, so a bad starting state is caught before twenty minutes go into a plan written against the wrong tree.
+
+**Report warnings to the user and let them decide.** Do not fix anything yourself — rebuilding a test database or stashing someone's work can break another session that's mid-run. Show each warning with its suggested action in one line and ask whether to proceed or settle it first. If everything passes, say so in one line and move on.
+
+## Step 4 — Refine + Plan (first call, stops for approval)
 
 The workflow ships as a plain file — call it by path. It runs in the **current worktree**, so invoke `/masterdevs:feature` from the feature's worktree/branch. **Pass `args` as a real JSON object, never a stringified/escaped blob** (a stringified value reaches the script as one string and the run fails). Substitute resolved absolute paths (no `<...>` placeholders or literal `$VARS`):
 
@@ -42,25 +54,33 @@ The workflow ships as a plain file — call it by path. It runs in the **current
 Workflow({
   scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/feature-loop.js",
   args: { brief: "<the user's brief>", playbookDir: "<PLAYBOOK_DIR>", rosterPath: "<ROSTER_PATH>", runDir: "<RUN_DIR>",
-          intent: {outcome, user, whyNow, success, constraint, outOfScope} }
+          intent: {outcome, user, whyNow, success, constraint, outOfScope, verifyOn} }
 })
 ```
 
-Pass `intent` whenever you interviewed. Refine then treats scope as settled and spends its budget researching the code instead of re-deriving what to build. Omit it only when you skipped the interview.
+Pass `intent` whenever you interviewed. Refine then treats scope as settled and spends its budget researching the code instead of re-deriving what to build. Omit it only when you skipped the interview. `verifyOn` is the seventh restate line — it becomes the verification's `dataSource`, so the run can say up front whether it can actually reach the data that proves the feature works.
 
-This call runs **Refine → Plan**, then **stops**. It returns either:
+This call runs **Refine → Plan → fact-check the plan**, then **stops**. It returns either:
 - `{outcome: "needs-clarification", openQuestions, requirementsPath}` — Refine found a contradiction *in the code* the interview couldn't have anticipated. Ask the user; re-run with the answers folded into the brief. If you interviewed and this still fires, the questions are worth reading closely — they're either a genuine code surprise or a gap in your interview.
-- `{outcome: "awaiting-plan-approval", summary, stepCount, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
+- `{outcome: "awaiting-plan-approval", summary, stepCount, claimChecks, planRevised, dataSource, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
 
-## Step 4 — Plan approval gate (STOP — the last interruption before the run goes dark)
+## Step 5 — Plan approval gate (STOP — the last interruption before the run goes dark)
 
 Do this **in the same sitting as the interview**. The user's attention is already here; sending them away and pulling them back costs another context load.
 
 Read `planPath` (and `requirementsPath` for context). Summarize the plan — the design approach, the steps, the resolved patterns, and the success criteria Verify will check — and ask the user to **approve, edit, or reject**. Human edits to `plan.md` win (the next call re-reads the file, so their edits are authoritative). Do not proceed until approved.
 
+**Surface what the plan assumed but couldn't confirm.** The workflow fact-checks the plan's claims about the code before you ever see it, and returns `claimChecks`:
+
+- **`unverifiable`** — say these out loud, every one. The plan is proceeding on an assumption nobody could settle from this checkout ("the production count was never checked"). This is the cheapest moment in the whole run to resolve one, and often the user simply knows the answer.
+- **`refuted`** — already handled: the plan was sent back and revised once (`planRevised: true`). Mention in one line that it was corrected and what changed, so the user knows the plan they're reading isn't the first draft.
+- **`verified`** — a count, not a list.
+
+Also state `dataSource` in one line — what the verification will actually run against. If it says the data isn't reachable here, that's a decision the user should make now, not read about at the end.
+
 Before you hand off, ask yourself the question the rest of the run depends on: **is there anything left that a human could answer now?** After this gate the agents are on their own until they finish. If a step's guidance makes you uneasy, or a success criterion is ambiguous, or you're unsure whether something is in scope — raise it here. This is the last free moment.
 
-## Step 5 — Run the loop (second call, `startFrom: "implement"`) with 5-minute status updates
+## Step 6 — Run the loop (second call, `startFrom: "implement"`) with 5-minute status updates
 
 On approval, resume into the Implement → Refactor → (Verify ∥ Review) → Iterate loop with the **same `runDir`**.
 
@@ -84,8 +104,16 @@ The call returns a **run id** immediately. **Post a status line to this chat eve
 
 1. Record the start time and the run id.
 2. Schedule the next check ~5 minutes out with `ScheduleWakeup` (`delaySeconds: 300`, a `reason` like "masterdevs 5-min status update", and a `prompt` that re-enters this status step for this run id).
-3. On each wakeup, read the run's **live progress** — via its task status, or its state file at `~/.claude/projects/<encoded-cwd>/<session>/workflows/<runId>.json` (fields `status`, `phases`, `workflowProgress`, `agentCount`, `startTime`) — and post **one concise line** to the chat, e.g. `⏳ masterdevs: Verify (iteration 2/3) · 3 agents run · 11 min elapsed`. Then re-schedule (step 2).
-4. When the run's `status` is no longer running (`completed`/`killed`) **or** its completion notification arrives, **stop the heartbeat** (`ScheduleWakeup` with `stop: true`) and go to Step 6.
+3. On each wakeup, read the run's **live progress** — via its task status, or its state file at `~/.claude/projects/<encoded-cwd>/<session>/workflows/<runId>.json` (fields `status`, `phases`, `workflowProgress`, `agentCount`, `startTime`) — and post **one concise line** to the chat, opening with the **current wall-clock time in the machine's local timezone**:
+
+   ```
+   ⏳ 2:47 PM PDT · masterdevs: Verify (iteration 2/3) · 3 agents run · 11 min elapsed
+   ```
+
+   Get the time with `date '+%-I:%M %p %Z'` — read it fresh on every wakeup, never carried forward or computed from the start time. The timestamp is what makes these lines useful after the fact: scrolling back, the user can tell when each update landed and how long a phase really took.
+
+   Then re-schedule (step 2).
+4. When the run's `status` is no longer running (`completed`/`killed`) **or** its completion notification arrives, **stop the heartbeat** (`ScheduleWakeup` with `stop: true`) and go to Step 7.
 
 If this session is closed, the 5-minute posts stop but the run keeps going — catch up via `/workflows` or the completion notification. (The quick Refine+Plan call and the approval gate are **not** wrapped in this heartbeat — only this long loop is.)
 
@@ -94,7 +122,7 @@ When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyN
 - **`escalations` non-empty** — an agent hit something the plan didn't predict: a file not shaped as described, a missing dependency, an approach that would break existing behavior. If `outcome` is `blocked`, work stopped there. Otherwise the agent found a way forward and kept going — surface these anyway, since a human should confirm the path it chose.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
-## Step 6 — Report
+## Step 7 — Report
 
 Read `${CLAUDE_PLUGIN_ROOT}/references/reporting.md` and follow it. That file owns the structure, the altitude rules, and the 25-line cap.
 

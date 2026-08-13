@@ -38,7 +38,7 @@ changes the picture, bring it back to them and re-confirm the affected line.
 
 ## Step 3 — Deliver
 
-Show the confirmed six-field intent, plus anything the code check changed.
+Show the confirmed seven-field intent, plus anything the code check changed.
 
 Offer to save it: `$DATA_DIR/intents/<slug>-<date>.md`, where `DATA_DIR` is `${CLAUDE_PLUGIN_DATA}` or
 `~/.claude/plugins/data/masterdevs-masterclaude/`. **Only if they say yes** — an unrequested file is

@@ -9,9 +9,11 @@ One RPI-style loop in a single worktree. Each phase runs in a **fresh context** 
 ```
 brief
   → Interview    ── YOU ARE HERE ──────────────────────────────────
-  → Refine          a real conversation: hypothesis + confidence, one
-  → Plan            question at a time, restate with an explicit
-  → [ approve ]     "Out of scope" line, explicit yes. Then the plan.
+  → Preflight       a real conversation: hypothesis + confidence, one
+  → Refine          question at a time, restate with an explicit
+  → Plan            "Out of scope" and "Verify on" line, explicit yes.
+  → Fact-check      Then: is this checkout fit to work in, and does
+  → [ approve ]     the plan's story about the code actually hold?
   ─────────────────────────────────────────── run goes dark ───────
   → Implement    build the plan in one pass, tests alongside
   → Refactor     clean up what the implementation introduced
@@ -23,6 +25,11 @@ brief
 ```
 
 **The design optimizes for interruptions, not tokens.** The product is your parallel time: you spend attention up front, then the run goes dark and you go do something else. A question asked at minute 40 costs a context switch; a wrong assumption costs the whole run. So everything answerable is answered before the handoff — that's what the interview is for, and why the plan gate sits in the same sitting.
+
+Two checks run in that same window, because both catch things the run can't raise with anyone once it's dark:
+
+- **Preflight** — is this checkout fit to start in? Feature branch, clean tree, not far behind the default branch, plus whatever the repo declares in `.masterdevs/preflight.json` (test-database freshness, migration collisions). It reports and recommends; it never fixes, because rebuilding a test database can break another session mid-run.
+- **Fact-check** — the Architect states the facts about the code its plan depends on (`claims`), each with the check that settles it. Those are run before you see the plan. Refuted claims go back for one revision; **unverifiable** ones surface at the gate, which is where "I'm assuming this and can't confirm it here" belongs. Measured on real runs, plans asserted three call sites where there were five, an attribute that only exists on IPv6, and four affected test files where there were roughly five hundred failing tests — all settleable by a grep.
 
 Once dark, agents have two channels for anything they notice and neither one interrupts you:
 

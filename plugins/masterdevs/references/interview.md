@@ -42,10 +42,23 @@ Otherwise, interview.
    should probably…" — that's deference to norms, not a requirement. Ask: *"If you didn't have to
    justify this to anyone, what would you actually want?"*
 
-4. **Stop at ~95% confidence.** The test is checkable, not a vibe: **can you predict the user's reaction
+4. **Settle what proves it worked — and on what data.** Ask this one explicitly, every time. It is the
+   single most common thing a finished run turns out not to have been able to answer for itself.
+   ```
+   Q: How will we know this actually worked — and what data can that be checked against?
+   GUESS: <the check you'd run, and where the data for it lives>
+   ```
+   Real runs end with *"confirmed only against the local database, which holds a single deal"* and
+   *"needs real customer deal data that does not exist locally."* By then it's too late to ask.
+
+   If the proof needs a specific record, fixture, seeded database, or a live service, name it — and say
+   whether the agents may reach it. **"Nothing local can prove this"** is a perfectly good answer; it
+   just has to be known before the run goes dark rather than discovered at the end.
+
+5. **Stop at ~95% confidence.** The test is checkable, not a vibe: **can you predict the user's reaction
    to the next three questions you would ask?** If yes, stop and restate. If no, ask the next one.
 
-5. **Restate for line-by-line confirmation.**
+6. **Restate for line-by-line confirmation.**
    ```
    - Outcome:      <one line>
    - User:         <one line — who benefits>
@@ -53,6 +66,7 @@ Otherwise, interview.
    - Success:      <one line — how we'll know it worked>
    - Constraint:   <one line — the binding limit>
    - Out of scope: <one line — what we are explicitly NOT doing>
+   - Verify on:    <one line — what proves it, and on what data>
 
    Yes / no / refine?
    ```
@@ -60,11 +74,15 @@ Otherwise, interview.
    about what wasn't being built — and in an unattended run those surface hours later, after everyone
    has moved on.
 
-6. **Take explicit yes only.** "Whatever you think" → re-ask as a choice between two concrete options.
+   **"Verify on" is not optional either.** "Success" is what good looks like; "Verify on" is what will
+   actually be run, and against which data. They are different answers and the second one is the one
+   that goes missing.
+
+7. **Take explicit yes only.** "Whatever you think" → re-ask as a choice between two concrete options.
    "Sounds good" → ask what they'd refine. Silence → ask what's missing. Loop until they actually
    confirm.
 
-The confirmed six-field restate is the deliverable. It travels as `intent`.
+The confirmed seven-field restate is the deliverable. It travels as `intent`.
 
 ## Rationalizations
 
@@ -76,3 +94,5 @@ The confirmed six-field restate is the deliverable. It travels as `intent`.
 | "They said 'whatever you think'" | That's delegation, not a decision. Re-ask with two concrete options |
 | "Attaching my guess leads them" | Leading is the point; being visibly willing to be wrong is the mitigation |
 | "I'll just note it as an assumption" | Assumptions surface as conflicts hours later, when they're expensive |
+| "The tests will prove it" | Tests prove the code does what the code says. Ask what data shows the *user's* problem is solved |
+| "I'll find the right fixture while building" | The agents that build can't ask which deal to use, and will substitute one |

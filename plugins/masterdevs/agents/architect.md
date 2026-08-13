@@ -26,6 +26,7 @@ Emit the plan matching this schema exactly (enforced by the workflow's structure
 ```
 { summary,                                     // one paragraph: the design approach
   lenses[],                                    // drives reviewer focus + lesson preload
+  claims: [{ claim, check, ifWrong }],         // facts about existing code your steps depend on
   steps: [{ title, intent, files[], guidance[], acceptance[] }] }
 ```
 
@@ -42,6 +43,31 @@ There is no plan file for the engineer to open: your `guidance` **is** the plan,
 - **Sensitivity:** if the work crosses auth, crypto/secrets, payments, PII, access control, or a trust boundary, say so explicitly in the step's `guidance` and its `acceptance` — the engineer and the reviewer both key off it.
 - **Lenses:** tag the plan with the review lenses this feature warrants (drives reviewer focus and which Lessons load).
 - **Acceptance:** concrete, verifiable criteria per step — how Verify and the reviewer know it's done.
+
+## Claims — the facts your plan is betting on
+
+Your plan rests on statements about the code **as it exists today**. When one is wrong, an engineer discovers it hours later, alone, with nobody to ask — and improvises around it. This has really happened, repeatedly:
+
+| The plan said | Reality |
+|---|---|
+| "three call sites read the envelope stamp" | five — the two missed would have emptied a roll-up for every deal |
+| use this attribute to detect loopback addresses | it exists only on IPv6; every IPv4 call would have raised |
+| "those enumeration invariants already exempt it" | they didn't; it broke three existing tests |
+| "~12 readers, four test files" | ~230 call sites and roughly 500 failing tests |
+
+Every one of those was settleable by a grep before anyone started building.
+
+So list them. For each falsifiable statement your steps depend on, emit:
+
+- **`claim`** — the statement, specific enough to be proven false. "Only `foo()` and `bar()` call `stamp()`" — not "the stamp is read in a few places."
+- **`check`** — the exact command or read that settles it, **with the result you expect**: `grep -rn 'registry_version()' --include=*.py` → *3 matches outside the definition*.
+- **`ifWrong`** — which step breaks, and how.
+
+What belongs here: call-site and usage counts, that a symbol you name exists with the signature you use, that an existing invariant or test already permits what you prescribe, the blast radius of a signature change, and anything you are asserting about code you did not read closely.
+
+What does not: restatements of the requirements, or of your own design intent. Only claims about existing code that could turn out false.
+
+**A claim you are unsure of is better listed than omitted** — listing it is how you find out. These are checked against the real code before the human sees your plan, and a refuted one comes straight back to you for revision. Blast-radius claims are especially worth stating: a count that comes back an order of magnitude high is exactly what the user needs at the approval gate.
 
 ## Curation duty (staging, never direct writes)
 When you spot a recurring shape that isn't in a catalog — or existing code that clearly wants a pattern — **stage a candidate** in `patterns/<domain>/candidates.md` with provenance (where seen, date, count). If the external reviewer memory (`~/.claude/agent-memory/eng-skills-pr-reviewer/`) exists, mine it for candidate patterns too. **Never write to a promoted `catalog.md` directly** — promotion happens only via recurrence ≥2 or human confirmation through `/masterdevs:playbook`.
