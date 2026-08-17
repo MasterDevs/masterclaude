@@ -53,6 +53,38 @@ const BLOCKING = new Set(['critical', 'high'])
 const reqPath = runDir ? `${runDir}/requirements.md` : null
 const planFilePath = runDir ? `${runDir}/plan.md` : null
 
+// Verification is the most expensive phase in the system — 22% of an average run's tokens, more than
+// Implement — and its cost curve is flat: the fifth pass costs as much as the first, because every pass
+// re-derives how to run this repo from scratch. Measured over 100 verify agents: 53 tool calls each at
+// only 2.5K tokens per call, the most exploratory profile of any phase. The ones that spiral do ~2x
+// that (p90 of 229 tool calls) and then hit a wall and get retried from zero — retried agents burned
+// 8.7M tokens across all runs, 11% of everything, and 8 of them returned no result at all.
+//
+// So Verify writes down what it learns, in two places with different lifetimes:
+const verifyLogPath = runDir ? `${runDir}/verify-log.md` : null
+// ...and how to operate THIS REPO, which is stable across every future run. runDir is
+// `<data>/runs/<repo-slug>/<run-id>/`, so its parent is the natural per-repo home. Cross-run learning
+// in the same spirit as the Playbook: the second feature in a repo should not rediscover its test command.
+const repoNotesPath = runDir ? `${runDir}/../verify-repo-notes.md` : null
+
+// What Verify should already know before it touches anything, and what it owes the next pass.
+// The first verification of a run pays the discovery cost; nothing after it should pay again.
+const verifyMemory = !verifyLogPath ? `` :
+  `\n**Read these before running anything** (either may be absent — then you are the one who creates it):\n` +
+  `- ${repoNotesPath} — how to operate THIS REPO: the env setup, the suite command and its runtime, how to\n` +
+  `  run one test, how to reach the app or database. Stable across features. TRUST IT; do not re-derive it.\n` +
+  `- ${verifyLogPath} — this run's log: which criteria already passed, and how each was proven.\n\n` +
+  `**Then update both**, before you return:\n` +
+  `- If anything in the repo notes was wrong or missing, correct it — a stale note costs every future run.\n` +
+  `  Keep it short and command-shaped. No feature specifics; they do not generalize.\n` +
+  `- Append this pass to the run log: per criterion, the verdict and the exact command that settled it.\n\n` +
+  `**Do not go exploring.** If the notes tell you how to run something, run it. If they do not, work it out\n` +
+  `ONCE, write it down, and move on. Verification that goes spelunking is the single most expensive failure\n` +
+  `mode here: agents that do roughly twice the normal number of tool calls run out of room and get restarted\n` +
+  `from nothing, which has cost more than any other single thing this loop does. If you genuinely cannot\n` +
+  `establish how to exercise a criterion, mark it unproven with the reason and return — that is a useful\n` +
+  `result. Burning the budget hunting for it is not.\n`
+
 // ── Schemas ────────────────────────────────────────────────────────────────
 const REFINE_SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -617,9 +649,22 @@ while (iteration < MAX_ITERATIONS) {
       `So: run the full test suite ONCE as your regression net (do not re-run it repeatedly), and re-exercise LIVE ` +
       `ONLY the success criteria whose behavior those revisions could have changed. Mark the rest as previously ` +
       `passing rather than re-proving them.`
-  const verifyPrompt = (attempt) =>
-    `Exercise the implementation against the success criteria and report pass/fail per criterion. ${verifyScope} ` +
-    `Do NOT run any risky/destructive step; list those under needsApprovalFor instead.\n\n` +
+
+  // A re-verify after a fix is NOT a fresh verification, and saying so is worth real money: measured
+  // across runs, re-verifies cost MORE than first passes (143K vs 114K) because they inherited the
+  // first-pass scope and redid the whole job. The fix agent touched a named set of failures; only those
+  // need live re-proving, plus one suite run as the regression net.
+  const fixScope = (fixed) =>
+    `A fix agent has just addressed these specific failures:\n${fixed.map((f) => `- ${f}`).join('\n')}\n` +
+    `Everything else in this feature verified in the pass immediately before that fix — the log records how. ` +
+    `So: run the test suite ONCE as your regression net, and re-exercise LIVE ONLY the criteria above. ` +
+    `Carry the rest forward from the log as already-passing rather than re-proving them; re-proving a ` +
+    `criterion nothing has touched is the most common way this phase wastes its budget.`
+
+  const verifyPrompt = (attempt, fixed) =>
+    `Exercise the implementation against the success criteria and report pass/fail per criterion. ` +
+    `${attempt > 0 && fixed && fixed.length ? fixScope(fixed) : verifyScope} ` +
+    `Do NOT run any risky/destructive step; list those under needsApprovalFor instead.\n` + verifyMemory + `\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
     `Verify method:\n${JSON.stringify(refine.verifyMethod, null, 2)}\n\n` +
     `Changed files: ${changedFiles.join(', ')}\n` +
@@ -666,7 +711,8 @@ while (iteration < MAX_ITERATIONS) {
   while (verify && !verify.passed && !(verify.impossible || []).length && vAttempt < MAX_VERIFY_FIX) {
     vAttempt++
     reviewStale = true
-    log(`verify fix ${vAttempt}/${MAX_VERIFY_FIX} (${verify.failures.length} failing)`)
+    const justFixed = verify.failures || []
+    log(`verify fix ${vAttempt}/${MAX_VERIFY_FIX} (${justFixed.length} failing)`)
     const fix = collect(await agent(
       `Verification failed. Fix ONLY these failing behaviors in the current worktree, then report changed files. ` +
       `Keep the rest of the tests green.\n\nFailures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock() + CHANNELS,
@@ -675,7 +721,7 @@ while (iteration < MAX_ITERATIONS) {
     if (!fix || fix.status === 'blocked') break
     changedFiles = merge(changedFiles, fix.changedFiles)
     if (fix.notes) carryNotes = fix.notes
-    verify = await agent(verifyPrompt(vAttempt), {
+    verify = await agent(verifyPrompt(vAttempt, justFixed), {
       label: `verify:${iteration}.${vAttempt}`, phase: 'Verify', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA })
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
@@ -753,7 +799,11 @@ if (verifyPassed && (polishApplied.length || reviewStale)) {
   phase('Polish')
   const finalVerify = await agent(
     `Confirm nothing regressed. Run the test suite ONCE and re-check only the success criteria that the changes ` +
-    `below could plausibly affect — do not re-prove the rest, and do not run risky/destructive steps.\n\n` +
+    `below could plausibly affect — do not re-prove the rest, and do not run risky/destructive steps.\n` +
+    verifyMemory +
+    `This is a regression net, not a fresh verification: it has run at 19 minutes on average, longer than the ` +
+    `first full pass it is supposed to be a cheap follow-up to. If the changes below are low-risk cleanups, the ` +
+    `suite alone is the answer.\n\n` +
     `Changes since the last full verification:\n` +
     `${[...polishApplied, ...(reviewStale ? ['fixes applied for earlier verification failures'] : [])].map((r) => `- ${r}`).join('\n')}\n\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +

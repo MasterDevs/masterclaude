@@ -84,12 +84,12 @@ Before you hand off, ask yourself the question the rest of the run depends on: *
 
 On approval, resume into the Implement → Refactor → (Verify ∥ Review) → Iterate loop with the **same `runDir`**.
 
-First, read the two things the loop would otherwise spend an agent apiece fetching, and pass them inline:
+**First, pass these two inline — do not skip this.** You just read both files at the approval gate, so you already have the content; omitting them makes the workflow spawn an agent to re-read them. Measured across real runs, **53 of 54 loop invocations paid that toll** at ~69K tokens each, purely because this step was treated as optional:
 
 - **`approved`** — parse the trailing fenced ` ```json ` block from `requirementsPath` and from `planPath` (the human may have edited them at the gate; those files are authoritative) and pass them as `{refine: <requirements json>, plan: <plan json>}`.
 - **`userReviewers`** — the array in `$PLAYBOOK_DIR/rosters/reviewers.user.json`, or `[]` if the file is absent or empty.
 
-Both are optional: omit either and the workflow falls back to loading it itself. Run it **in the background** so this session can post progress while it works:
+The fallback exists for standalone invocations that never went through this skill. If you are here, you have the data — pass it. Run it **in the background** so this session can post progress while it works:
 
 ```
 Workflow({

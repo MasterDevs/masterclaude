@@ -235,6 +235,55 @@ const scenarios = [
     ],
   },
   {
+    // Verification is 22% of an average run and its cost curve was FLAT — every pass re-derived how to
+    // operate the repo. Two things fix that, and both are prompt contracts, so this asserts on prompts.
+    name: 'verify is told what it already knows, and told not to go exploring',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['low']) : iter({}),
+    capturePrompt: 'verify:1.0',
+    expect: ({ prompt }) => [
+      [/verify-repo-notes\.md/.test(prompt), 'verify must be pointed at the durable per-repo notes'],
+      [/verify-log\.md/.test(prompt), "verify must be pointed at this run's log"],
+      [/TRUST IT; do not re-derive it/.test(prompt), 'reading the notes is pointless if it re-derives anyway'],
+      [/Do not go exploring/.test(prompt), 'unbounded exploration is what makes verify blow up and retry'],
+      [/mark it unproven with the reason and return/.test(prompt),
+        'verify needs a cheap way out, or it hunts until it dies'],
+    ],
+  },
+  {
+    // Re-verifies measured MORE expensive than first passes (143K vs 114K) because they inherited the
+    // first-pass scope and redid the whole job. The fix agent addressed named failures; only those need
+    // live re-proving.
+    name: 're-verify after a fix is scoped to what the fix touched',
+    args: LOOP_ARGS,
+    responder: (() => {
+      let v = 0
+      return (l) => {
+        if (l.startsWith('implement') || l === 'polish') return impl
+        if (l.startsWith('refactor')) return refac
+        if (l.startsWith('verify')) return (++v === 1)
+          ? { passed: false, results: [], failures: ['the total is off by one'], needsApprovalFor: [] }
+          : vpass
+        if (l === 'review:post-fix') return find([])
+        if (l.startsWith('review')) return find(['low'])
+        return iter({})
+      }
+    })(),
+    capturePrompt: 'verify:1.1',
+    expect: ({ prompt }) => [
+      [/the total is off by one/.test(prompt), 'the re-verify must be told which failures were just fixed'],
+      [/re-exercise LIVE ONLY the criteria above/.test(prompt),
+        'a re-verify that redoes the full first pass is why this phase cost more on retry, not less'],
+      [/regression net/.test(prompt), 'the suite still runs once, as the net'],
+      [!/boot the app, hit endpoints/.test(prompt),
+        'the first-pass scope must NOT leak into a re-verify — that was the actual bug'],
+    ],
+  },
+  {
     name: 'verify fails then fixed — fixes get re-verified AND re-reviewed',
     args: LOOP_ARGS,
     responder: (() => {

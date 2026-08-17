@@ -25,7 +25,7 @@ result field that quietly stops being populated, a mutating agent scheduled agai
 ### How much does it actually catch?
 
 Measured by mutation testing — deliberately breaking the loop and checking the suite goes red.
-**32 of 32 mutations caught**, including every one that would restore a bug this design exists to fix:
+**36 of 36 mutations caught**, including every one that would restore a bug this design exists to fix:
 
 | Mutation | |
 |---|---|
@@ -36,6 +36,9 @@ Measured by mutation testing — deliberately breaking the loop and checking the
 | Stop letting a conflict fail the run | caught |
 | Skip the plan fact-check entirely | caught |
 | Skip the success-criteria check entirely | caught |
+| Stop telling Verify what it already learned | caught |
+| Let Verify explore without bound (the retry cliff) | caught |
+| Re-verify inherits the full first-pass scope | caught |
 | Let contradictory criteria through to the build | caught |
 | Treat an unverifiable criterion as a blocker | caught |
 | Send a fix agent at an unreachable target | caught |
@@ -57,7 +60,7 @@ Measured by mutation testing — deliberately breaking the loop and checking the
 Re-measure it yourself — the checker is committed:
 
 ```bash
-node scripts/mutation-check.mjs      # breaks the loop 32 ways, asserts the suite goes red
+node scripts/mutation-check.mjs      # breaks the loop 36 ways, asserts the suite goes red
 ```
 
 Add a mutation there whenever you add a behavior worth protecting; it is the only check on whether the

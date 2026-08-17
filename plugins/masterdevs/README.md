@@ -43,6 +43,8 @@ Scope questions are neither — those were settled before the run started.
 
 The loop stops early and hands back to you only when something genuinely needs you: a dead-end escalation, or a revision that conflicts with the approved requirements.
 
+**Verification remembers.** It is the most expensive phase in the system — 22% of an average run, more than Implement — because every pass used to re-derive how to operate the repo from nothing. Now it keeps two notes: a per-repo one (`verify-repo-notes.md`, next to the run dir) holding the env setup, suite command, and how to reach the app — stable across every future feature in that repo — and a per-run log of which criteria passed and how. A re-verify after a fix is scoped to what the fix touched rather than redoing the first pass, and exploration is explicitly bounded: unproven-with-a-reason is a valid answer. Unbounded hunting is what made agents do double the usual tool calls, run out of room, and get restarted from zero — retries alone were 11% of all tokens ever spent.
+
 Priority hierarchy governing all generated code: **security > reliability/correctness > velocity**.
 
 ## Commands
