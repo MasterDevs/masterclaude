@@ -54,9 +54,12 @@ jobs:
           fi
 
       # Public repo: keep internal names and absolute paths out of it.
+      # This file is excluded because it necessarily contains the patterns it searches for —
+      # without the exclusion the check always fails on itself.
       - name: No leaked identifiers
         run: |
-          if git grep -InE 'dirtlabs|/Users/[a-z]+/|AKIA[0-9A-Z]{16}' -- . ; then
+          if git grep -InE 'dirtlabs|/Users/[a-z]+/|AKIA[0-9A-Z]{16}' \
+               -- . ':(exclude).github/workflows/ci.yml' ; then
             echo "::error::Found an internal identifier, home path, or key-shaped string."
             exit 1
           fi
