@@ -110,6 +110,19 @@ looked healthy. The only tell was `interviewed: false` in the run data.
 actually loaded by checking that a command you added is present. `scripts/run-report.mjs` also reports
 whether runs were interviewed, which is the cheapest way to catch this from the outside.
 
+## While it runs
+
+A status line posts every ~5 minutes, and it exists for one purpose: letting you stop a run that is heading somewhere wrong. So it reports what the agents are actually doing, not that they are busy.
+
+```
+⏳ 2:47 PM PDT · Verify · verify:1.0 running commands (37 steps, 14m) · 41m total
+   review:reviewer:1 → review — high in bucket_values.py:900: The dollar total multiplies each bucket rate by the whole revenue history
+```
+
+The first line is the live agent and what it last reached for; the second is what the previous agent found — a review finding with its file and line, the file list an implement pass touched, a plan conflict, a verification failure, or a criterion Verify has decided cannot be met at all. A stall shows as `⚠ no progress for 23m`, which usually means stuck rather than working.
+
+Run it yourself any time with `node scripts/run-status.mjs [runId]`.
+
 ## Is it working?
 
 The design makes a falsifiable claim — front-loading your attention buys uninterrupted time without

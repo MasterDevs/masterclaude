@@ -113,13 +113,24 @@ The call returns a **run id** immediately. **Post a status line to this chat eve
 
 1. Record the start time and the run id.
 2. Schedule the next check ~5 minutes out with `ScheduleWakeup` (`delaySeconds: 300`, a `reason` like "masterdevs 5-min status update", and a `prompt` that re-enters this status step for this run id).
-3. On each wakeup, read the run's **live progress** — via its task status, or its state file at `~/.claude/projects/<encoded-cwd>/<session>/workflows/<runId>.json` (fields `status`, `phases`, `workflowProgress`, `agentCount`, `startTime`) — and post **one concise line** to the chat, opening with the **current wall-clock time in the machine's local timezone**:
+3. On each wakeup, run:
 
    ```
-   ⏳ 2:47 PM PDT · masterdevs: Verify (iteration 2/3) · 3 agents run · 11 min elapsed
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/run-status.mjs <runId>
    ```
 
-   Get the time with `date '+%-I:%M %p %Z'` — read it fresh on every wakeup, never carried forward or computed from the start time. The timestamp is what makes these lines useful after the fact: scrolling back, the user can tell when each update landed and how long a phase really took.
+   and post its output verbatim. It reads the live per-agent state and prints at most two lines — the timestamp and what's running now, then what the last finished agent actually found:
+
+   ```
+   ⏳ 2:47 PM PDT · Verify · verify:1.0 running commands (37 steps, 14m) · 41m total
+      review:reviewer:1 → review — high in bucket_values.py:900: The dollar total multiplies each bucket rate by the whole revenue history
+   ```
+
+   The second line is the point of the whole heartbeat: it is what lets the user stop a run that's heading somewhere wrong. A status that only says the machine is busy cannot do that.
+
+   It also flags a stall (`⚠ no progress for 23m`) — worth calling out in your own words if you see it, since that usually means an agent is stuck rather than working.
+
+   **Add a sentence of your own only when you have something the script cannot see** — the run is on its second round for the same finding, or an escalation just landed that changes what the user should expect. Otherwise post the two lines and nothing else; the value here is that it stays skimmable.
 
    Then re-schedule (step 2).
 4. When the run's `status` is no longer running (`completed`/`killed`) **or** its completion notification arrives, **stop the heartbeat** (`ScheduleWakeup` with `stop: true`) and go to Step 7.
