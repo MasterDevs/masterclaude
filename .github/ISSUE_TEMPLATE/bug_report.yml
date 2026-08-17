@@ -1,0 +1,30 @@
+name: Bug report
+description: Something in the loop behaved wrongly
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got instead.
+    validations: { required: true }
+  - type: textarea
+    id: run-report
+    attributes:
+      label: Run data (if a feature run was involved)
+      description: |
+        Output of `node scripts/run-report.mjs`. It reads local workflow state, needs no setup,
+        and feature names are redacted to stable hashes by default.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: From `/plugin`, or `plugins/masterdevs/.claude-plugin/plugin.json`.
+    validations: { required: true }
+  - type: checkboxes
+    id: session
+    attributes:
+      label: Confirmed
+      options:
+        - label: If I changed a skill or agent file, I tested in a NEW session (they load at session start)

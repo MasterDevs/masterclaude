@@ -27,7 +27,7 @@ Emit the plan matching this schema exactly (enforced by the workflow's structure
 { summary,                                     // one paragraph: the design approach
   lenses[],                                    // drives reviewer focus + lesson preload
   claims: [{ claim, check, ifWrong }],         // facts about existing code your steps depend on
-  steps: [{ title, intent, files[], guidance[], acceptance[] }] }
+  steps: [{ title, intent, files[], guidance[], reuse[], acceptance[] }] }
 ```
 
 **One engineer builds every step in one pass**, in the order you emit them — so order for a single build sequence, not for parallel lanes, and don't split work that wants to be one edit.
@@ -50,7 +50,7 @@ Your plan rests on statements about the code **as it exists today**. When one is
 
 | The plan said | Reality |
 |---|---|
-| "three call sites read the envelope stamp" | five — the two missed would have emptied a roll-up for every deal |
+| "three call sites read the cache key" | five — the two missed would have emptied a summary for every record |
 | use this attribute to detect loopback addresses | it exists only on IPv6; every IPv4 call would have raised |
 | "those enumeration invariants already exempt it" | they didn't; it broke three existing tests |
 | "~12 readers, four test files" | ~230 call sites and roughly 500 failing tests |
@@ -60,7 +60,7 @@ Every one of those was settleable by a grep before anyone started building.
 So list them. For each falsifiable statement your steps depend on, emit:
 
 - **`claim`** — the statement, specific enough to be proven false. "Only `foo()` and `bar()` call `stamp()`" — not "the stamp is read in a few places."
-- **`check`** — the exact command or read that settles it, **with the result you expect**: `grep -rn 'registry_version()' --include=*.py` → *3 matches outside the definition*.
+- **`check`** — the exact command or read that settles it, **with the result you expect**: `grep -rn 'cache_key()' --include=*.py` → *3 matches outside the definition*.
 - **`ifWrong`** — which step breaks, and how.
 
 What belongs here: call-site and usage counts, that a symbol you name exists with the signature you use, that an existing invariant or test already permits what you prescribe, the blast radius of a signature change, and anything you are asserting about code you did not read closely.

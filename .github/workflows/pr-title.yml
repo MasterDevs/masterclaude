@@ -1,0 +1,35 @@
+name: PR title
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      # Squash-merge puts the PR title into the commit, and release automation reads
+      # those to decide the next version. This is the ONLY convention a contributor
+      # has to follow — and the check tells them exactly how to fix it.
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            ci
+            chore
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" should start lowercase.
+            Examples:  feat: stop the loop when criteria contradict
+                       fix: re-verify no longer redoes the first pass

@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # Opens (and keeps updating) a "chore: release X.Y.Z" PR that bumps both version
+      # files and writes the changelog from the commits since the last release.
+      # Merging that PR is what tags the release and publishes it. Nobody edits a
+      # version by hand, and contributors never touch this.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Only runs on the merge of the release PR — the tag now exists.
+      - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
+
+      - name: Confirm the released versions agree
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          PLUGIN=$(node -p "require('./plugins/masterdevs/.claude-plugin/plugin.json').version")
+          MARKET=$(node -p "require('./.claude-plugin/marketplace.json').metadata.version")
+          TAG="${{ steps.release.outputs.tag_name }}"
+          echo "tag=$TAG plugin=$PLUGIN marketplace=$MARKET"
+          [ "$PLUGIN" = "$MARKET" ] && [ "v$PLUGIN" = "$TAG" ] || {
+            echo "::error::Released versions disagree with the tag."
+            exit 1
+          }

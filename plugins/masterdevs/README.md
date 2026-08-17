@@ -83,9 +83,9 @@ Every finding, escalation, and deferral carries a **`soWhat`** — one plain sen
 that had the code open, saying what it means and what happens if nobody acts. That translation has to
 happen where the code context is; the report step can only paraphrase what it's handed.
 
-> ❌ `recompute_los_bucket_variants`' sweep matches only the registry prefix of the envelope stamp.
+> ❌ `refresh_stale_invoices`' sweep matches only the schema prefix of the cache key.
 >
-> ✅ Editing a severance rate makes that deal recalculate from scratch on every view, permanently — no
+> ✅ Editing a tax rate makes that invoice recalculate from scratch on every view, permanently — no
 > wrong numbers, just slow. *Recommend: follow-up ticket, don't hold the PR.*
 
 The report is written in the vocabulary of the intent **you** confirmed in the interview, capped at 25
@@ -116,7 +116,7 @@ A status line posts every ~5 minutes, and it exists for one purpose: letting you
 
 ```
 ⏳ 2:47 PM PDT · Verify · verify:1.0 running commands (37 steps, 14m) · 41m total
-   review:reviewer:1 → review — high in bucket_values.py:900: The dollar total multiplies each bucket rate by the whole revenue history
+   review:reviewer:1 → review — high in pricing.py:900: The order total multiplies each line rate by the whole billing history
 ```
 
 The first line is the live agent and what it last reached for; the second is what the previous agent found — a review finding with its file and line, the file list an implement pass touched, a plan conflict, a verification failure, or a criterion Verify has decided cannot be met at all. A stall shows as `⚠ no progress for 23m`, which usually means stuck rather than working.

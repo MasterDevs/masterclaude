@@ -361,7 +361,7 @@ const scenarios = [
     name: 'first call WITH confirmed intent — scope and verification arrive settled',
     args: { brief: 'b', playbookDir: '/pb', runDir: '/run',
       intent: { outcome: 'O', user: 'U', whyNow: 'W', success: 'S', constraint: 'C', outOfScope: 'NOPE',
-        verifyOn: 'deal 867 in the dev database' } },
+        verifyOn: 'account 4821 in the staging database' } },
     responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
     capturePrompt: 'refine',
     expect: ({ result, prompt, schemas, prompts }) => [
@@ -369,7 +369,7 @@ const scenarios = [
       [/Out of scope: NOPE/.test(prompt), 'the confirmed intent must reach Refine'],
       [/SETTLED/.test(prompt), 'Refine must be told not to reopen scope'],
       [/contradiction you find in the CODE/.test(prompt), 'blocking questions must be narrowed to code surprises'],
-      [/deal 867 in the dev database/.test(prompt),
+      [/account 4821 in the staging database/.test(prompt),
         "the user's answer to 'verify on what data' must reach Refine, or it cannot honor it"],
       // Arriving is not enough — it rides along in the intent block regardless. Refine has to be told
       // it is binding, or it will quietly verify against whatever is convenient and report success.

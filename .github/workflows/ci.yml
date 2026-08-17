@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Runs the real workflow against a stubbed agent layer — no models, no cost.
+      - name: Control-flow scenarios
+        run: node scripts/loop-scenarios.mjs
+
+      # Breaks the loop deliberately and asserts the suite goes red. A green suite that
+      # catches nothing is worse than no suite; this is what proves it catches something.
+      - name: Mutation check
+        run: node scripts/mutation-check.mjs
+
+      # The bundled scripts ship to users, so a syntax error here is a broken install.
+      - name: Scripts parse
+        run: |
+          for f in plugins/masterdevs/scripts/*.mjs scripts/*.mjs; do
+            node --check "$f"
+          done
+          node -e "
+            const fs=require('fs');
+            const src=fs.readFileSync('plugins/masterdevs/workflows/feature-loop.js','utf8')
+              .replace('export const meta','const meta',1);
+            new Function('args','agent','parallel','log','phase','budget',
+              'return (async()=>{'+src+'})()');
+            console.log('feature-loop.js parses');
+          "
+
+      # Two files carry the version and Claude Code reads both. Release automation keeps
+      # them in step; this catches a hand-edit that didn't.
+      - name: Versions agree
+        run: |
+          PLUGIN=$(node -p "require('./plugins/masterdevs/.claude-plugin/plugin.json').version")
+          MARKET=$(node -p "require('./.claude-plugin/marketplace.json').metadata.version")
+          MANIFEST=$(node -p "require('./.release-please-manifest.json')['.']")
+          TXT=$(cat version.txt)
+          echo "plugin=$PLUGIN marketplace=$MARKET manifest=$MANIFEST version.txt=$TXT"
+          if [ "$PLUGIN" != "$MARKET" ] || [ "$PLUGIN" != "$MANIFEST" ] || [ "$PLUGIN" != "$TXT" ]; then
+            echo "::error::Version mismatch — release automation keeps these four in step, so a"
+            echo "::error::difference means someone edited one by hand. Revert the manual edit."
+            exit 1
+          fi
+
+      # Public repo: keep internal names and absolute paths out of it.
+      - name: No leaked identifiers
+        run: |
+          if git grep -InE 'dirtlabs|/Users/[a-z]+/|AKIA[0-9A-Z]{16}' -- . ; then
+            echo "::error::Found an internal identifier, home path, or key-shaped string."
+            exit 1
+          fi
+          echo "clean"

@@ -236,7 +236,7 @@ const CLAIM_CHECK_SCHEMA = {
 //   punted      — small, out of scope, recorded and moved past. NEVER stops the run, never asks.
 // Scope questions are NOT valid escalations: those were settled in the interview before the run went dark.
 // The report the user reads is written from these fields, and they are the only place the code context
-// exists. An agent that says "the sweep matches only the registry prefix of the envelope stamp" has
+// exists. An agent that says "the sweep matches only the schema prefix of the cache key" has
 // answered a question the user never asked. `soWhat` forces the translation here, where it can be done
 // correctly — the report step downstream can only paraphrase what it is given.
 const SO_WHAT = { type: 'string' }

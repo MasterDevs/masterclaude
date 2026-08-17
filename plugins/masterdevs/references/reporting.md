@@ -45,9 +45,9 @@ Then one closing line of run stats.
 ## The altitude test
 
 > ❌ The reviewer flagged high (performance lens): `recompute_los_bucket_variants`' sweep matches only
-> the registry prefix of the envelope stamp, not the per-deal values fingerprint.
+> the schema prefix of the cache key, not the per-invoice values fingerprint.
 >
-> ✅ Editing a severance rate makes that deal recalculate from scratch on every view, permanently — no
+> ✅ Editing a tax rate makes that invoice recalculate from scratch on every view, permanently — no
 > wrong numbers, just slow. *Recommend: follow-up ticket, don't hold the PR.*
 
 Same finding. The second one can be acted on without opening the diff.

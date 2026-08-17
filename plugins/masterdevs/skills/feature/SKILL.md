@@ -123,7 +123,7 @@ The call returns a **run id** immediately. **Post a status line to this chat eve
 
    ```
    ⏳ 2:47 PM PDT · Verify · verify:1.0 running commands (37 steps, 14m) · 41m total
-      review:reviewer:1 → review — high in bucket_values.py:900: The dollar total multiplies each bucket rate by the whole revenue history
+      review:reviewer:1 → review — high in pricing.py:900: The order total multiplies each line rate by the whole billing history
    ```
 
    The second line is the point of the whole heartbeat: it is what lets the user stop a run that's heading somewhere wrong. A status that only says the machine is busy cannot do that.

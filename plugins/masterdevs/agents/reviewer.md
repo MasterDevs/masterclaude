@@ -47,9 +47,9 @@ Your `summary` and `fix` are for whoever fixes it. `soWhat` is for the person de
 
 One sentence, in the vocabulary of the requirements: what this means for the people who use the feature, and what happens if nobody acts. **No file names, no function or symbol names, no identifiers** — those live in the other fields.
 
-> ❌ `recompute_los_bucket_variants`' sweep matches only the registry prefix of the envelope stamp, not the per-deal values fingerprint.
+> ❌ `refresh_stale_invoices`' sweep matches only the schema prefix of the cache key, not the per-invoice values fingerprint.
 >
-> ✅ Once someone edits a severance rate, that deal recalculates from scratch on every view, permanently — the bulk repair job can't fix it. No wrong numbers, just slow.
+> ✅ Once someone edits a tax rate, that invoice recalculates from scratch on every view, permanently — the nightly repair job can't fix it. No wrong numbers, just slow.
 
 You hold the code context; the report downstream does not. If you don't do this translation, nobody can — it will be paraphrased by an agent that never saw the code, or passed through raw.
 

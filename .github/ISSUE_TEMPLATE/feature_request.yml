@@ -1,0 +1,22 @@
+name: Idea
+description: Suggest a change to how the loop works
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What goes wrong today
+      description: Describe the situation, not the solution. What did the run do that it shouldn't have?
+    validations: { required: true }
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        Optional but persuasive. Most changes here started as a number that looked wrong —
+        `node scripts/run-report.mjs`, a run that cost more than it should have, a report you
+        couldn't act on.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd try
