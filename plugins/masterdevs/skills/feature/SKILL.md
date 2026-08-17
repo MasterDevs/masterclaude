@@ -60,9 +60,9 @@ Workflow({
 
 Pass `intent` whenever you interviewed. Refine then treats scope as settled and spends its budget researching the code instead of re-deriving what to build. Omit it only when you skipped the interview. `verifyOn` is the seventh restate line — it becomes the verification's `dataSource`, so the run can say up front whether it can actually reach the data that proves the feature works.
 
-This call runs **Refine → Plan → fact-check the plan**, then **stops**. It returns either:
-- `{outcome: "needs-clarification", openQuestions, requirementsPath}` — Refine found a contradiction *in the code* the interview couldn't have anticipated. Ask the user; re-run with the answers folded into the brief. If you interviewed and this still fires, the questions are worth reading closely — they're either a genuine code surprise or a gap in your interview.
-- `{outcome: "awaiting-plan-approval", summary, stepCount, claimChecks, planRevised, dataSource, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
+This call runs **Refine → Plan (∥ check the success criteria) → fact-check the plan**, then **stops**. It returns either:
+- `{outcome: "needs-clarification", openQuestions, requirementsPath, criteriaIssues?}` — something must be settled before anything is built. Either Refine found a contradiction *in the code* the interview couldn't have anticipated, or (when `criteriaIssues` is present) **the success criteria themselves cannot be satisfied**: two of them contradict, or one names a target correct code can never produce — classically a number that is the *current, buggy* output. Present the questions plainly, get the user's answer, and re-run with the corrected criteria folded into the brief. Do not talk them past this; a criterion that can't be met poisons the whole run.
+- `{outcome: "awaiting-plan-approval", summary, stepCount, claimChecks, criteriaIssues, planRevised, dataSource, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
 
 ## Step 5 — Plan approval gate (STOP — the last interruption before the run goes dark)
 
@@ -76,7 +76,7 @@ Read `planPath` (and `requirementsPath` for context). Summarize the plan — the
 - **`refuted`** — already handled: the plan was sent back and revised once (`planRevised: true`). Mention in one line that it was corrected and what changed, so the user knows the plan they're reading isn't the first draft.
 - **`verified`** — a count, not a list.
 
-Also state `dataSource` in one line — what the verification will actually run against. If it says the data isn't reachable here, that's a decision the user should make now, not read about at the end.
+Also state `dataSource` in one line — what the verification will actually run against. If it says the data isn't reachable here, that's a decision the user should make now, not read about at the end. Any `criteriaIssues` that reach this point are `unverifiable` ones — say which criterion can't be proven here and what would settle it.
 
 Before you hand off, ask yourself the question the rest of the run depends on: **is there anything left that a human could answer now?** After this gate the agents are on their own until they finish. If a step's guidance makes you uneasy, or a success criterion is ambiguous, or you're unsure whether something is in scope — raise it here. This is the last free moment.
 
@@ -120,6 +120,7 @@ If this session is closed, the 5-minute posts stop but the run keeps going — c
 When the loop returns `{outcome, iterations, changedFiles, verifyPassed, verifyNeedsApproval, conflicts, escalations, punted, polishApplied, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, three fields may need you mid-flight:
 - **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and **stopped there**, because only a human can settle them. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief. Note that the loop ended early, so remaining work may still be outstanding.
 - **`escalations` non-empty** — an agent hit something the plan didn't predict: a file not shaped as described, a missing dependency, an approach that would break existing behavior. If `outcome` is `blocked`, work stopped there. Otherwise the agent found a way forward and kept going — surface these anyway, since a human should confirm the path it chose.
+- **`impossibleCriteria` non-empty** — Verify found that a success criterion **cannot be met by correct code**: the target itself is wrong (typically a number that turns out to be the pre-fix value). The loop stopped immediately rather than throwing engineers at it. Present the criterion and what Verify found, and get a corrected criterion before re-running — **re-running with the same criteria repeats the whole cost for the same result.** This has happened: one feature spent 5.8M tokens across two full loops on criteria that were internally contradictory the entire time.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
 ## Step 7 — Report

@@ -129,6 +129,34 @@ const CLAIMS_RULE =
   `is better listed than omitted — listing it is how you find out. Do not list restatements of the ` +
   `requirements or of your own design intent; only statements about existing code that could turn out false.`
 
+// Are the success criteria satisfiable AT ALL? Verification is the most expensive phase in the system
+// — 22% of an average run's tokens, more than Implement — and it costs the same on the fifth pass as
+// the first. Point it at an impossible target and that cost compounds: one real run spent ~1.2M tokens
+// and five verification passes chasing a dollar figure that WAS the bug being fixed, so correct code
+// could never produce it. The same run also carried two criteria that contradicted each other. Both are
+// settleable in seconds, by reading, before anyone builds anything.
+const CRITERIA_CHECK_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['issues'],
+  properties: {
+    issues: { type: 'array', items: {
+      type: 'object', additionalProperties: false,
+      required: ['kind', 'criteria', 'problem', 'evidence', 'soWhat'],
+      properties: {
+        // contradiction      two criteria cannot both hold
+        // unreachable-target a stated value correct code can never produce — classically the CURRENT
+        //                    (buggy) output, pasted in as the goal
+        // unverifiable       nothing here can settle it; a caveat, not a blocker
+        kind: { type: 'string', enum: ['contradiction', 'unreachable-target', 'unverifiable'] },
+        criteria: { type: 'array', items: { type: 'string' } },   // names of the criteria involved
+        problem: { type: 'string' },
+        evidence: { type: 'string' },
+        soWhat: { type: 'string' },   // same contract as SO_WHAT, declared below this point
+      },
+    } },
+  },
+}
+const CRITERIA_BLOCKING = new Set(['contradiction', 'unreachable-target'])
+
 const CLAIM_CHECK_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['results'],
   properties: {
@@ -205,6 +233,14 @@ const VERIFY_SCHEMA = {
     } },
     failures: { type: 'array', items: { type: 'string' } },           // concrete failing behaviors to fix
     needsApprovalFor: { type: 'array', items: { type: 'string' } },   // risky steps it declined to run
+    // Criteria the CODE cannot satisfy — the target itself is wrong. Distinct from `failures`, which
+    // are things an engineer can go fix. Sending a fix agent at one of these produces nothing but cost:
+    // one real run spent three repair attempts and five verification passes on a dollar figure that was
+    // the pre-fix bug. Reporting one here ends the fix loop immediately and routes it to the user.
+    impossible: { type: 'array', items: {
+      type: 'object', additionalProperties: false, required: ['criterion', 'why'],
+      properties: { criterion: { type: 'string' }, why: { type: 'string' } },
+    } },
   },
 }
 
@@ -281,7 +317,8 @@ const CONTEXT_DISCIPLINE =
 // 'implement') loads the approved (possibly human-edited) artifacts and runs the Implement→Iterate loop.
 const startFrom = input.startFrom || 'refine'
 let refine, plan
-let claimChecks = null   // per-claim verdicts, surfaced at the approval gate
+let claimChecks = null      // per-claim verdicts, surfaced at the approval gate
+let criteriaIssues = []     // success criteria that cannot be satisfied, or cannot be checked here
 
 if (startFrom === 'implement') {
   // ── Resume after plan approval: use the artifacts the skill already read, else load them ──
@@ -341,8 +378,12 @@ if (startFrom === 'implement') {
   log(`requirements resolved; ${refine.successCriteria.length} success criteria`)
 
   // ── Phase: Plan (strongest model) ──
+  // The criteria check rides alongside the Architect rather than gating it: both read only Refine's
+  // output, so running them concurrently costs no wall clock in the common case where the criteria are
+  // fine — and the user is waiting through this phase.
   phase('Plan')
-  plan = await agent(
+  const planned = await parallel([
+    () => agent(
     `You are the Architect. Produce a handoff-ready implementation plan for another engineer to execute.\n\n` +
     `Requirements:\n${refine.requirements}\n\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
@@ -354,8 +395,53 @@ if (startFrom === 'implement') {
     CLAIMS_RULE + `\n` +
     (planFilePath ? `Also write a concise human-readable plan to ${planFilePath}, ending with the EXACT structured result in a fenced \`\`\`json block (so the approved plan can be reloaded, and a human can edit it before approving).\n` : ``),
     { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'opus' }
-  )
+    ),
+    () => agent(
+      `You are checking whether a feature's success criteria can be satisfied AT ALL, before anyone ` +
+      `builds against them. You are strictly READ-ONLY: read code, run read-only queries, change nothing.\n\n` +
+      `Everything after this check runs unattended, and verification is the most expensive phase there ` +
+      `is — pointed at an impossible target it will burn hours proving correct code wrong. Report only:\n\n` +
+      `  contradiction       two or more criteria that cannot both hold. Say which, and why they are ` +
+      `exclusive. Watch for one criterion requiring a value to CHANGE while another requires that same ` +
+      `value to stay identical.\n` +
+      `  unreachable-target  a stated value correct code can never produce. The classic case: the number ` +
+      `is the CURRENT output — i.e. the bug being fixed, pasted in as the goal. So for every concrete ` +
+      `numeric or string target, go compute what the code produces TODAY. If it already reproduces the ` +
+      `target exactly, that is near-proof the criterion is asking to preserve the defect; say so.\n` +
+      `  unverifiable        nothing available here can settle it (needs production data, a live ` +
+      `service, credentials). Say what WOULD settle it.\n\n` +
+      `Do NOT report criteria that are merely hard, vague, or that you would have worded differently — ` +
+      `only ones that are impossible, self-contradictory, or uncheckable. Return an empty list if the ` +
+      `criteria are sound; that is the expected outcome and there is no credit for finding something.\n\n` +
+      `Requirements:\n${refine.requirements}\n\n` +
+      `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
+      `Verify method:\n${JSON.stringify(refine.verifyMethod, null, 2)}\n\n` + SO_WHAT_RULE + CONTEXT_DISCIPLINE,
+      { label: 'check-criteria', phase: 'Plan', schema: CRITERIA_CHECK_SCHEMA,
+        agentType: 'general-purpose', model: 'sonnet' }
+    ),
+  ])
+  plan = planned[0]
+  criteriaIssues = ((planned[1] && planned[1].issues) || [])
   if (!plan || !plan.steps || plan.steps.length === 0) throw new Error('Plan produced no steps')
+
+  // A contradictory or impossible criterion poisons everything downstream, and only the user can settle
+  // it — so this stops here rather than surfacing as a caveat the user might approve past. This is the
+  // exact failure that cost one real run 5.8M tokens across two full loops.
+  const blockingCriteria = criteriaIssues.filter((i) => CRITERIA_BLOCKING.has(i.kind))
+  if (blockingCriteria.length) {
+    log(`${blockingCriteria.length} success criterion/criteria cannot be satisfied — stopping for the user`)
+    return {
+      outcome: 'needs-clarification',
+      openQuestions: blockingCriteria.map((i) =>
+        `${i.kind === 'contradiction' ? 'Contradictory criteria' : 'Impossible target'} ` +
+        `(${(i.criteria || []).join(', ')}): ${i.problem} — ${i.evidence}`),
+      criteriaIssues,
+      requirements: refine.requirements,
+      requirementsPath: reqPath,
+      planPath: planFilePath,
+      outputTokens: (typeof budget !== 'undefined' && budget) ? budget.spent() : undefined,
+    }
+  }
 
   // ── Fact-check the plan BEFORE the human sees it ──────────────────────────
   // This is the one place work is deliberately added to the window the user is waiting in. It buys
@@ -414,6 +500,7 @@ if (startFrom === 'implement') {
     // What the plan assumed, and which of it survived contact with the code. `unverifiable` entries are
     // the ones worth the user's eye: the plan is proceeding on an assumption nobody could confirm here.
     claimChecks,
+    criteriaIssues,   // survivors are `unverifiable` only — blocking kinds returned above
     planRevised: planRevisions > 0,
     dataSource: (refine.verifyMethod && refine.verifyMethod.dataSource) || null,
     requirementsPath: reqPath,
@@ -469,6 +556,7 @@ let iteration = 0
 let lastFindings = []
 let verifyPassed = false
 let verifyNeedsApproval = []
+let impossibleCriteria = []   // criteria correct code can never satisfy — the target itself is wrong
 let reviewStale = false            // Verify applied fixes after Review read the tree
 // Rationale breadcrumb threaded forward so each fresh agent inherits the prior agent's key decisions
 // (its intent) WITHOUT inheriting its whole context — continuity of intent, not of tokens.
@@ -535,7 +623,12 @@ while (iteration < MAX_ITERATIONS) {
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
     `Verify method:\n${JSON.stringify(refine.verifyMethod, null, 2)}\n\n` +
     `Changed files: ${changedFiles.join(', ')}\n` +
-    `Return concrete \`failures\` (the exact failing behaviors) so they can be fixed.` +
+    `Return concrete \`failures\` (the exact failing behaviors) so they can be fixed.\n` +
+    `Separate out any criterion the code CANNOT satisfy into \`impossible\` — where the target itself is ` +
+    `wrong, not the code: a stated number that is the pre-fix value, or a criterion that contradicts ` +
+    `another. Judge that by what the criterion asks for, NOT by how many attempts have failed. Putting ` +
+    `one in \`failures\` sends an engineer to chase it; putting it in \`impossible\` ends the round and ` +
+    `asks the user, which is the only thing that can resolve a wrong target.` +
     (attempt === 0 ? readOnlyRule : ``) + CONTEXT_DISCIPLINE
 
   const reviewScope = iteration === 1
@@ -567,7 +660,10 @@ while (iteration < MAX_ITERATIONS) {
 
   // ── Verify's fix loop (serial — this one mutates, so it waits for Review) ──
   let vAttempt = 0
-  while (verify && !verify.passed && vAttempt < MAX_VERIFY_FIX) {
+  // An impossible criterion is not fixable by definition, so no fix agent runs against one. This guard
+  // is what turns "five verification passes and three repair attempts against an unreachable number"
+  // into one pass and a question.
+  while (verify && !verify.passed && !(verify.impossible || []).length && vAttempt < MAX_VERIFY_FIX) {
     vAttempt++
     reviewStale = true
     log(`verify fix ${vAttempt}/${MAX_VERIFY_FIX} (${verify.failures.length} failing)`)
@@ -584,6 +680,10 @@ while (iteration < MAX_ITERATIONS) {
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
   verifyPassed = !!(verify && verify.passed)
+  if (verify && (verify.impossible || []).length) {
+    impossibleCriteria = merge(impossibleCriteria, verify.impossible.map((i) => `${i.criterion}: ${i.why}`))
+    log(`${verify.impossible.length} criterion/criteria cannot be satisfied as written — stopping for the user`)
+  }
 
   // ── Iterate (decide; partition findings) ──
   phase('Iterate')
@@ -616,6 +716,8 @@ while (iteration < MAX_ITERATIONS) {
 
   // A plan-conflict is the user's call — stop rather than spend another round around an open question.
   if (conflicts.length) { log(`${conflicts.length} plan-conflict(s) — stopping for the user`); break }
+  // So is an unreachable target. Another round cannot make correct code produce a wrong number.
+  if (impossibleCriteria.length) break
   // The script, not the agent, decides what earns another round: the agent can vote to stop, never to prolong.
   if (iter.decision !== 'continue') break
   if (!revisions.length && !hasBlocking && verifyPassed) break
@@ -625,8 +727,10 @@ while (iteration < MAX_ITERATIONS) {
 // This replaces the extra full round those nits used to buy. They are applied by one cheap engineer and
 // covered by a regression check — but deliberately NOT re-reviewed, because re-reviewing nit fixes is what
 // produced a fresh crop of findings every round instead of a converging one.
+// Skipped on an unreachable target for the same reason as a conflict: the requirements are going back to
+// the user, so this code is likely to move again. Polish costs a real agent (~150-250K tokens observed).
 let polishApplied = []
-if (polish.length && !conflicts.length) {
+if (polish.length && !conflicts.length && !impossibleCriteria.length) {
   phase('Polish')
   const pol = collect(await agent(
     `Apply ONLY these low-risk revisions to the existing implementation in the current worktree, then report ` +
@@ -685,13 +789,15 @@ const unresolvedBlocking = lastFindings.filter((f) => BLOCKING.has(f.severity))
 // them, just escalations. That mislabels a successful run as one needing you, which is the exact cost
 // this design exists to avoid. A genuine dead end returns `blocked` long before reaching this line.
 return {
-  outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0)
+  outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0
+    && impossibleCriteria.length === 0)
     ? 'passed' : 'needs-attention',
   iterations: iteration,
   changedFiles,
   verifyPassed,
   verifyNeedsApproval,        // risky steps Verify declined to run — need human
   conflicts,                  // clash with requirements/plan — user decides
+  impossibleCriteria,         // the target itself is wrong — only the user can fix the criterion
   escalations,                // the code surprised us mid-run — a human should look
   punted,                     // small things noticed and moved past — recorded, no action taken
   polishApplied,              // medium/low revisions batched and applied once, without re-review

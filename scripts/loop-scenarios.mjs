@@ -37,6 +37,12 @@ const PLAN = {
 }
 const APPROVED = { refine: REFINE, plan: PLAN }
 const claimsOk = { results: [{ claim: 'only two call sites read the stamp', verdict: 'verified', evidence: '2 matches' }] }
+const critOk = { issues: [] }
+const critIssue = (kind) => ({ issues: [{ kind, criteria: ['c1', 'c13'], problem: 'p', evidence: 'e',
+  soWhat: 'the run would spend hours proving correct code wrong' }] })
+// Verify distinguishes "an engineer can fix this" from "the target itself is wrong".
+const vimpossible = { passed: false, results: [], failures: [], needsApprovalFor: [],
+  impossible: [{ criterion: 'c1', why: 'the stated total is the pre-fix value' }] }
 const claimsBad = { results: [{ claim: 'only two call sites read the stamp', verdict: 'refuted', evidence: 'there are five' }] }
 
 const impl = { status: 'done', changedFiles: ['f.py'], notes: 'n', punted: [{ item: 'smell', reason: 'out of scope' }] }
@@ -334,6 +340,70 @@ const scenarios = [
     ],
   },
   {
+    // The roll-up-weight failure, in miniature. One real run carried an acceptance target that WAS the
+    // bug being fixed, so correct code could never produce it; verification ran five times and three
+    // fix agents chased it, ~1.2M tokens, before ending red. Both kinds must stop at the gate — where
+    // the user is standing and the fix is a sentence.
+    name: 'contradictory criteria — stops before anyone builds',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN
+      : l === 'check-criteria' ? critIssue('contradiction') : l.startsWith('verify-plan') ? claimsOk : null),
+    expect: ({ result, calls }) => [
+      [result.outcome === 'needs-clarification',
+        `impossible criteria are the user's to settle — got ${result.outcome}`],
+      [(result.openQuestions || []).length === 1, 'the contradiction must reach the user as a question'],
+      [!calls.some((c) => c.startsWith('implement')), 'nothing may be built against criteria that cannot hold'],
+      [calls.includes('check-criteria'), 'the criteria must be checked at all'],
+    ],
+  },
+  {
+    name: 'unreachable numeric target — same stop, different kind',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN
+      : l === 'check-criteria' ? critIssue('unreachable-target') : l.startsWith('verify-plan') ? claimsOk : null),
+    expect: ({ result }) => [
+      [result.outcome === 'needs-clarification', `got ${result.outcome}`],
+      [/Impossible target/.test((result.openQuestions || [])[0] || ''), 'the question must name what is wrong'],
+    ],
+  },
+  {
+    // The counterweight: `unverifiable` must NOT stop the run, or every feature touching production
+    // data would halt at the gate. It is a caveat the user reads before approving.
+    name: 'unverifiable criterion — a caveat at the gate, not a stop',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN
+      : l === 'check-criteria' ? critIssue('unverifiable') : l.startsWith('verify-plan') ? claimsOk : null),
+    expect: ({ result }) => [
+      [result.outcome === 'awaiting-plan-approval',
+        `an unprovable criterion is a caveat, not a blocker — got ${result.outcome}`],
+      [(result.criteriaIssues || []).length === 1, 'it must still reach the user at the gate'],
+    ],
+  },
+  {
+    // Every other signal says "keep fixing": verify is red and there are attempts left on the clock.
+    // The ONLY thing that can stop the fix loop here is the impossible flag.
+    name: 'verify reports an impossible target — no fix agent is sent at it',
+    args: LOOP_ARGS,
+    // Iterate votes CONTINUE with outstanding must-fix work, and verify is red — so every ordinary
+    // signal says "run another round". Only the impossible flag can stop this.
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vimpossible :
+      l.startsWith('review') ? find(['high']) :
+      iter({ decision: 'continue', mustFix: ['would otherwise continue'], polish: ['p'] }),
+    expect: ({ result, calls }) => [
+      [!calls.some((c) => /^implement:\d+\.fix/.test(c)),
+        'no engineer may be sent to fix a criterion whose target is wrong'],
+      [calls.filter((c) => /^verify:/.test(c)).length === 1,
+        `verification must run once, not chase it — ran ${calls.filter((c) => /^verify:/.test(c)).length}`],
+      [rounds(calls) === 1, `a wrong target cannot be fixed by another round, ran ${rounds(calls)}`],
+      [result.impossibleCriteria.length === 1, 'the impossible criterion must come back to the user'],
+      [result.outcome === 'needs-attention', `got ${result.outcome}`],
+      [!calls.includes('polish'), 'no polish on code that is about to be reworked'],
+    ],
+  },
+  {
     name: 'plan claims all check out — no revision, verdicts reach the gate',
     args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
     responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
@@ -405,6 +475,11 @@ const scenarios = [
         [punt.includes('item') && punt.includes('reason'), 'punted items must require item and reason'],
         [(it.deferred?.items?.required || []).includes('soWhat'), 'deferred items must require soWhat'],
         [!!it.mustFix && !!it.polish, 'Iterate must keep mustFix and polish separate — merging them restores the churn'],
+        // Verify has to be able to say "the target is wrong" distinctly from "this is failing", or an
+        // unreachable criterion reads as ordinary breakage and gets fix agents thrown at it.
+        [['criterion', 'why'].every((k) =>
+          (schemas['verify:1.0']?.properties?.impossible?.items?.required || []).includes(k)),
+          'an impossible criterion must name itself and say why it cannot be met'],
       ]
     },
   },
