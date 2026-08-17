@@ -349,19 +349,14 @@ const merge = (a, b) => [...new Set([...(a || []), ...(b || [])])]
 // Appended to every agent that writes code. The run is unattended by design: the user front-loaded the
 // interview and the plan gate specifically so they could go do other work. Interrupting them is expensive
 // and must be reserved for things that genuinely surprised us.
+// Every call that appends this runs as `masterdevs:engineer`, whose definition already carries the full
+// two-channel policy and the plain-language rule for writing them. Restating it here would be a second
+// copy to keep in sync — and the two would drift, which is worse than either alone. Durable role
+// standards live in the agent file; prompts carry the task.
 const CHANNELS =
-  `\n\nTwo channels for anything you notice that isn't your job — use them instead of stopping to ask:\n` +
-  `• \`punted\` — small, out of scope, or better done later (a nearby smell, a missing test elsewhere, a ` +
-  `rename you'd like). Record {item, reason} and MOVE ON. This never interrupts anyone; it is the default.\n` +
-  `• \`escalations\` — the code contradicted the plan in a way a human should know about: a file isn't shaped ` +
-  `as described, a required dependency is absent, the planned approach would break existing behavior. Record ` +
-  `{issue, why}. If you found a defensible way forward, take it and keep status="done" — the escalation still ` +
-  `surfaces at the end. Set status="blocked" ONLY if you genuinely cannot proceed.\n` +
-  `Scope and preference questions are NOT escalations — those were settled with the user before this run ` +
-  `started. Do not stop to re-ask them; implement what the requirements say.\n` +
-  `Both channels are read by a person who has not seen your diff and will not read it. ${SO_WHAT_RULE}\n` +
-  `Write \`punted\` items the same way: what was left undone and why it does not matter yet, in feature ` +
-  `terms — not "extract a helper in <file>".`
+  `\n\nUse the two channels from your instructions rather than stopping to ask: \`punted\` {item, reason} ` +
+  `for anything small or out of scope, \`escalations\` {issue, why, soWhat} when the code contradicted the ` +
+  `plan. Keep status="done" if you found a defensible way forward; "blocked" only for a genuine dead end.`
 
 const CONTEXT_DISCIPLINE =
   `\n\nContext discipline: work lean. Read targeted sections (grep, specific symbols) rather than whole large ` +
@@ -641,12 +636,16 @@ while (iteration < MAX_ITERATIONS) {
       `Each step carries a \`reuse\` line naming what already exists for this job. Honor it: extend or call ` +
       `those rather than writing a second copy. If one turns out not to fit, say so in \`notes\` — that is a ` +
       `real finding about the plan, not a licence to duplicate quietly.\n\n` +
-      CRAFT_RULE + `\n\n` +
+      // CRAFT_RULE is deliberately NOT repeated here: this call runs as `masterdevs:engineer`, whose
+      // definition states the same three standards in more depth. It stays in the Plan prompt because
+      // the Architect has no equivalent section.
       `Requirements:\n${refine.requirements}\n\n${planBlock}`
     : `Apply ONLY these approved revisions to the existing implementation in the current worktree, then report ` +
       `changed files. Keep tests green. Stay in scope.\n\nRevisions:\n${revisions.map((r) => `- ${r}`).join('\n')}\n\n` +
       `(Plan context)\n${planBlock}` + notesBlock()
-  const implFull = implPrompt + CHANNELS + CONTEXT_DISCIPLINE
+  // No CONTEXT_DISCIPLINE here — engineer.md opens with the same rule. It stays on the general-purpose
+  // calls (Refine, Verify, the checks), which have no agent definition to carry it.
+  const implFull = implPrompt + CHANNELS
   const impl = collect(await agent(implFull, {
     label: `implement:${iteration}`, phase: 'Implement',
     agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA,
@@ -662,34 +661,24 @@ while (iteration < MAX_ITERATIONS) {
   // ── Refactor ──
   phase('Refactor')
   const refactor = collect(await agent(
-    `Improve what the implementation just landed, against three specific goals. Apply only SAFE, ` +
-    `behavior-preserving refactors in scope; keep tests green. Stage any recurring pattern as a candidate ` +
-    `(never a promoted lane).\n\n` +
-    `1. **Cut branching.** Find the units the implementation made hardest to follow — deep nesting, long ` +
-    `if/else ladders, a function juggling several interacting conditions — and flatten them: early returns, ` +
-    `a lookup table, one function per case. This is the single biggest lever on whether the next reader ` +
-    `understands this code.\n` +
-    `2. **Make it readable cold.** Rename anything whose meaning depends on knowing this feature. Delete ` +
-    `comments that restate the code; keep and sharpen the ones explaining WHY. A block that needs a ` +
-    `paragraph of explanation wants to be a named function instead.\n` +
-    `3. **Collapse duplication into reuse — searching the WHOLE codebase, not just this feature.** A ` +
-    `duplicate you only look for inside the changed files is one you will never find; the copy that ` +
-    `matters is almost always in a module this feature never touched. So for each non-trivial helper, ` +
-    `type, or block the implementation introduced, grep the repository for the same shape — by ` +
-    `distinctive identifier, by the constant or literal it turns on, by the signature — and check ` +
-    `whether a sibling module already does this job. Near-duplicates are where this codebase drifts: ` +
-    `one copy gets fixed, the other silently does not.\n\n` +
-    `**Read anywhere; edit narrowly.** Searching the whole tree is cheap and expected. Changing it is ` +
-    `not:\n` +
-    `  - The existing thing is reusable as-is → call it, delete the new copy. Do this.\n` +
-    `  - It needs a small, behavior-preserving widening (a parameter, a lifted constant) and it is ` +
-    `test-covered → do it, and run its tests too, not just this feature's.\n` +
-    `  - It needs real surgery in a module this feature does not own → do NOT start. Record it in ` +
-    `\`punted\`, and add a line to ${playbookDir}/refactor-backlog.md naming both sites, so the ` +
-    `Architect pulls it in on a future run that already touches that file.\n` +
-    `Keep the search targeted — a handful of greps for specific shapes, not a tour of the repository. ` +
-    `Unbounded exploration is the most expensive failure mode in this system.\n\n` +
-    `Report what you changed in \`applied\`, one line each, naming the goal it served. Genuinely finding ` +
+    // Your instructions already define the three standards (branching, cold readability, reuse). What
+    // this prompt adds is what is specific to a refactor pass over a diff that was just written.
+    `Improve what the implementation just landed, against the three standards in your instructions — ` +
+    `branching, cold readability, and reuse. Apply only SAFE, behavior-preserving refactors; keep tests ` +
+    `green. Stage any recurring pattern as a candidate (never a promoted lane).\n\n` +
+    `Two things are specific to this pass:\n\n` +
+    `**Hunt duplication across the WHOLE codebase, not just this feature.** A duplicate you only look ` +
+    `for inside the changed files is one you will never find; the copy that matters is almost always in ` +
+    `a module this feature never touched. For each non-trivial helper, type, or block just introduced, ` +
+    `grep the repository for the same shape — by distinctive identifier, by the constant it turns on, ` +
+    `by the signature. Keep it targeted: a handful of greps, not a tour of the repository.\n\n` +
+    `**Read anywhere; edit narrowly.**\n` +
+    `  - Existing thing is reusable as-is → call it, delete the new copy.\n` +
+    `  - Needs a small behavior-preserving widening and is test-covered → do it, and run its tests too.\n` +
+    `  - Needs real surgery in a module this feature does not own → do NOT start. Record it in ` +
+    `\`punted\` and add a line to ${playbookDir}/refactor-backlog.md naming both sites, so the Architect ` +
+    `pulls it in on a future run that already touches that file.\n\n` +
+    `Report what you changed in \`applied\`, one line each, naming the standard it served. Finding ` +
     `nothing worth doing is a valid answer — say so rather than inventing churn.\n\n` +
     `The plan below is your EDITING scope — it is not a limit on where you may look. Do NOT go looking ` +
     `for a plan file on disk; ` +

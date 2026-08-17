@@ -19,6 +19,9 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = path.join(ROOT, 'plugins/masterdevs/workflows/feature-loop.js')
 const VERBOSE = process.argv.includes('-v')
+// Agent definitions are the other half of the prompt contract: anything a prompt stops repeating must
+// still be stated somewhere the agent actually loads. Read them so scenarios can assert that.
+const ENGINEER_MD = fs.readFileSync(path.join(ROOT, 'plugins/masterdevs/agents/engineer.md'), 'utf8')
 
 const src = fs.readFileSync(SCRIPT, 'utf8').replace('export const meta', 'const meta', 1)
 const wf = new Function('args', 'agent', 'parallel', 'log', 'phase', 'budget',
@@ -92,10 +95,12 @@ async function drive(args, responder) {
   const schemaErrors = []
   const schemas = {}
   const prompts = {}          // every prompt by label, for scenarios asserting on more than one
+  const agentTypes = {}       // which agent definition each call loads — that file carries standards
   const agent = async (prompt, opts) => {
     calls.push(opts.label)
     schemas[opts.label] = opts.schema
     prompts[opts.label] = prompt
+    agentTypes[opts.label] = opts.agentType
     const out = await responder(opts.label, prompt)
     // null is a legal agent result (the workflow handles it); anything else must match the contract.
     if (out != null && opts.schema) schemaErrors.push(...validate(out, opts.schema, opts.label))
@@ -104,7 +109,7 @@ async function drive(args, responder) {
   const parallel = async (thunks) =>
     Promise.all(thunks.map(async (t) => { try { return await t() } catch { return null } }))
   const result = await wf(args, agent, parallel, () => {}, () => {}, undefined)
-  return { calls, result, schemaErrors, schemas, prompts }
+  return { calls, result, schemaErrors, schemas, prompts, agentTypes }
 }
 
 const rounds = (calls) => calls.filter((c) => /^implement:\d+$/.test(c)).length
@@ -554,10 +559,17 @@ const scenarios = [
       l.startsWith('verify') ? vpass :
       l.startsWith('review') ? find(['low']) : iter({}),
     capturePrompt: 'implement:1',
-    expect: ({ prompt, schemas }) => [
-      [/Branching stays low/.test(prompt), 'the complexity bar must reach the engineer'],
-      [/cold reader/i.test(prompt), 'the readability bar must reach the engineer'],
-      [/Reuse before writing/.test(prompt), 'the reuse bar must reach the engineer'],
+    expect: ({ prompt, agentTypes }) => [
+      // The three standards live in engineer.md rather than being restated in every prompt — one
+      // source of truth, no drift. So the contract is: the call loads that definition, AND the
+      // definition still says the thing. Asserting only the first would let the content be deleted.
+      [agentTypes['implement:1'] === 'masterdevs:engineer',
+        'implement must run as the engineer, whose definition carries the craft standards'],
+      [/Branching is the thing to watch/.test(ENGINEER_MD), 'engineer.md must state the branching bar'],
+      [/never seen this file/.test(ENGINEER_MD), 'engineer.md must state the cold-reader bar'],
+      [/Look repo-wide/.test(ENGINEER_MD), 'engineer.md must state the repo-wide reuse obligation'],
+      [/soWhat/.test(ENGINEER_MD),
+        'engineer.md must carry the plain-language rule — the prompt no longer repeats it'],
       [/extend helpers\.py::normalize/.test(prompt),
         "the plan's concrete reuse targets must reach the engineer, or naming them achieves nothing"],
     ],
@@ -580,7 +592,8 @@ const scenarios = [
       [/refactor-backlog\.md/.test(prompt), 'out-of-scope reuse work needs somewhere to land'],
       [/EDITING scope — it is not a limit on where you may look/.test(prompt),
         'the old "the plan is your scope" wording confined the search to the feature'],
-      [/Unbounded exploration/.test(prompt), 'the search still has to be bounded — that lesson was expensive'],
+      [/not a tour of the repository/.test(prompt),
+        'the search still has to be bounded — that lesson was expensive'],
     ],
   },
   {
