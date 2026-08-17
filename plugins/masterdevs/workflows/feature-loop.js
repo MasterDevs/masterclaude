@@ -138,17 +138,41 @@ const PLAN_SCHEMA = {
     lenses: { type: 'array', items: { type: 'string' } },
     claims: CLAIMS,
     steps: { type: 'array', items: {
-      type: 'object', additionalProperties: false, required: ['title', 'intent', 'files', 'acceptance'],
+      type: 'object', additionalProperties: false, required: ['title', 'intent', 'files', 'acceptance', 'reuse'],
       properties: {
         title: { type: 'string' }, intent: { type: 'string' },
         files: { type: 'array', items: { type: 'string' } },
         // Resolved, inlined design guidance so the engineer never loads the catalog.
         guidance: { type: 'array', items: { type: 'string' } },
+        // What already exists that this step should extend or call instead of writing again — named
+        // concretely (file + symbol), or an explicit "nothing fits, writing new because …". Required
+        // so the question gets ASKED: the Architect is the only agent that reads the codebase with the
+        // whole design in view, so a duplicate it fails to notice becomes one nobody notices.
+        reuse: { type: 'array', items: { type: 'string' } },
         acceptance: { type: 'array', items: { type: 'string' } },
       },
     } },
   },
 }
+
+// Three quality goals, stated as checkable bars rather than aspirations. The agent definitions already
+// carried the aspirational versions ("simplest correct solution", "names that need no explanation") and
+// the review panel's design/modularity lens has returned ZERO findings across 38 blocking results — so
+// exhortation demonstrably does not move this. What moves it is being made to answer a question.
+const CRAFT_RULE =
+  `Three things this codebase is judged on, in every step you write:\n` +
+  `1. **Branching stays low.** A function whose behavior depends on many interacting conditions is the ` +
+  `main thing that makes code unreadable later. Prefer early returns over nesting, a lookup table over ` +
+  `an if/else ladder, and a separate function per distinct case. If a unit needs more than ~10 decision ` +
+  `points, that is the signal to split it — not a target to hit.\n` +
+  `2. **Written for a cold reader.** Assume the next person has never seen this file and will not read ` +
+  `the diff, the ticket, or this plan. Names carry the meaning; comments explain WHY, never what. If a ` +
+  `name needs a comment to be understood, change the name. If a block needs a paragraph, it wants to be ` +
+  `a well-named function.\n` +
+  `3. **Reuse before writing, and leave the seam better.** Search for the existing helper, type, or ` +
+  `near-twin before authoring a new one — near-duplicates are the dominant source of drift here, where ` +
+  `one copy gets fixed and the other silently does not. When you find one, extend it or extract the ` +
+  `shared core rather than adding a third copy; when you deliberately duplicate, say why in one line.`
 
 const CLAIMS_RULE =
   `Every plan rests on facts about the code as it exists TODAY, and a plan built on a false one sends an ` +
@@ -424,6 +448,15 @@ if (startFrom === 'implement') {
     `the design — for each step inline concrete \`guidance\` (the pattern/refactor and HOW to apply it here), so the ` +
     `engineer never loads the catalog. Reuse existing abstractions over inventing new ones. Be TERSE — a spec, not ` +
     `an essay; the plan is re-read each iteration. Order steps for a single engineer to build in one pass.\n\n` +
+    CRAFT_RULE + `\n\n` +
+    `You are the only agent that reads this codebase with the whole design in view, so **you** decide reuse: ` +
+    `for every step, fill \`reuse\` with the existing helpers, types, or near-twins it should extend or call ` +
+    `instead of writing again — named concretely, file and symbol. **Search the whole repository, not just ` +
+    `the files this step touches**; the thing worth reusing is usually in a module the feature never opens, ` +
+    `which is exactly why it gets written twice. Go look; do not answer from memory. If ` +
+    `nothing fits, say so explicitly and why ("nothing existing handles X because …"). An empty answer is not ` +
+    `an option: a duplicate you fail to notice here is one nobody notices, and it ships as a second copy that ` +
+    `drifts from the first.\n\n` +
     CLAIMS_RULE + `\n` +
     (planFilePath ? `Also write a concise human-readable plan to ${planFilePath}, ending with the EXACT structured result in a fenced \`\`\`json block (so the approved plan can be reloaded, and a human can edit it before approving).\n` : ``),
     { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'opus' }
@@ -542,7 +575,8 @@ if (startFrom === 'implement') {
 }
 
 const planBlock = `Plan summary: ${plan.summary}\n\nSteps:\n` + plan.steps.map((s, i) =>
-  `${i + 1}. ${s.title}\n   intent: ${s.intent}\n   files: ${(s.files || []).join(', ')}\n   guidance: ${(s.guidance || []).join(' | ') || '—'}\n   acceptance: ${(s.acceptance || []).join('; ')}`
+  `${i + 1}. ${s.title}\n   intent: ${s.intent}\n   files: ${(s.files || []).join(', ')}\n   guidance: ${(s.guidance || []).join(' | ') || '—'}\n` +
+  `   reuse: ${(s.reuse || []).join(' | ') || '—'}\n   acceptance: ${(s.acceptance || []).join('; ')}`
 ).join('\n')
 
 // ── Setup: user-added reviewers (default is the one combined reviewer) ──────
@@ -602,8 +636,12 @@ while (iteration < MAX_ITERATIONS) {
   phase('Implement')
   const implPrompt = iteration === 1
     ? `Implement this plan in the CURRENT worktree, step by step, in one pass. Follow the plan's guidance exactly; ` +
-      `reuse existing abstractions; write tests alongside the code. If a step's plan is wrong (file not shaped as ` +
+      `write tests alongside the code. If a step's plan is wrong (file not shaped as ` +
       `described, pattern doesn't fit), set status="blocked" and explain — do NOT silently redesign.\n\n` +
+      `Each step carries a \`reuse\` line naming what already exists for this job. Honor it: extend or call ` +
+      `those rather than writing a second copy. If one turns out not to fit, say so in \`notes\` — that is a ` +
+      `real finding about the plan, not a licence to duplicate quietly.\n\n` +
+      CRAFT_RULE + `\n\n` +
       `Requirements:\n${refine.requirements}\n\n${planBlock}`
     : `Apply ONLY these approved revisions to the existing implementation in the current worktree, then report ` +
       `changed files. Keep tests green. Stay in scope.\n\nRevisions:\n${revisions.map((r) => `- ${r}`).join('\n')}\n\n` +
@@ -624,10 +662,37 @@ while (iteration < MAX_ITERATIONS) {
   // ── Refactor ──
   phase('Refactor')
   const refactor = collect(await agent(
-    `Review the plan and the current implementation for refactoring opportunities the implementation may have ` +
-    `introduced — duplication, a helper that wants extracting, a seam in the wrong place, dead code. Apply only ` +
-    `SAFE, behavior-preserving refactors in scope; keep tests green. Stage any recurring pattern as a candidate ` +
-    `(never a promoted lane).\n\nThe plan is below — it is your scope. Do NOT go looking for a plan file on disk; ` +
+    `Improve what the implementation just landed, against three specific goals. Apply only SAFE, ` +
+    `behavior-preserving refactors in scope; keep tests green. Stage any recurring pattern as a candidate ` +
+    `(never a promoted lane).\n\n` +
+    `1. **Cut branching.** Find the units the implementation made hardest to follow — deep nesting, long ` +
+    `if/else ladders, a function juggling several interacting conditions — and flatten them: early returns, ` +
+    `a lookup table, one function per case. This is the single biggest lever on whether the next reader ` +
+    `understands this code.\n` +
+    `2. **Make it readable cold.** Rename anything whose meaning depends on knowing this feature. Delete ` +
+    `comments that restate the code; keep and sharpen the ones explaining WHY. A block that needs a ` +
+    `paragraph of explanation wants to be a named function instead.\n` +
+    `3. **Collapse duplication into reuse — searching the WHOLE codebase, not just this feature.** A ` +
+    `duplicate you only look for inside the changed files is one you will never find; the copy that ` +
+    `matters is almost always in a module this feature never touched. So for each non-trivial helper, ` +
+    `type, or block the implementation introduced, grep the repository for the same shape — by ` +
+    `distinctive identifier, by the constant or literal it turns on, by the signature — and check ` +
+    `whether a sibling module already does this job. Near-duplicates are where this codebase drifts: ` +
+    `one copy gets fixed, the other silently does not.\n\n` +
+    `**Read anywhere; edit narrowly.** Searching the whole tree is cheap and expected. Changing it is ` +
+    `not:\n` +
+    `  - The existing thing is reusable as-is → call it, delete the new copy. Do this.\n` +
+    `  - It needs a small, behavior-preserving widening (a parameter, a lifted constant) and it is ` +
+    `test-covered → do it, and run its tests too, not just this feature's.\n` +
+    `  - It needs real surgery in a module this feature does not own → do NOT start. Record it in ` +
+    `\`punted\`, and add a line to ${playbookDir}/refactor-backlog.md naming both sites, so the ` +
+    `Architect pulls it in on a future run that already touches that file.\n` +
+    `Keep the search targeted — a handful of greps for specific shapes, not a tour of the repository. ` +
+    `Unbounded exploration is the most expensive failure mode in this system.\n\n` +
+    `Report what you changed in \`applied\`, one line each, naming the goal it served. Genuinely finding ` +
+    `nothing worth doing is a valid answer — say so rather than inventing churn.\n\n` +
+    `The plan below is your EDITING scope — it is not a limit on where you may look. Do NOT go looking ` +
+    `for a plan file on disk; ` +
     `there isn't one.\n\n${planBlock}\n\nChanged files: ${changedFiles.join(', ')}\n${playbookNote}` + CHANNELS,
     { label: `refactor:${iteration}`, phase: 'Refactor', agentType: 'masterdevs:engineer', model: 'sonnet', schema: REFACTOR_SCHEMA }
   ))

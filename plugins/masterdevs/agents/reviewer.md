@@ -26,6 +26,13 @@ The one write you may make is staging a Playbook candidate (below) — that path
 - **Security** — injection, auth/authorization bypass, secret/PII handling, crypto misuse, SSRF, unsafe deserialization, unvalidated external input at boundaries, timing side-channels. Highest priority; a false negative here is the expensive kind.
 - **Performance** — N+1 queries, missing batching/streaming, hot-path allocations, unbounded growth, cache misuse, algorithms quadratic on user-controlled input. Assume production scale and adversarial input.
 - **Design / modularity** — single responsibility, seams at real boundaries only, dependencies pointing inward, no boolean-flag args, names that need no explanation, the simplest correct solution over the cleverest. Pattern used where it simplifies, not decorates.
+
+  **This lens has returned zero findings across every review to date, which is not credible.** Correctness crowds it out: real bugs are more urgent, so the branch nobody can follow never gets written up. Give it its own pass, and report against three concrete triggers rather than a general impression:
+  - **Branching** — a function whose behavior turns on many interacting conditions, deep nesting, a long if/else ladder that wants a lookup or one function per case. Say which function, and what it would take to flatten it.
+  - **Cold readability** — a name that only makes sense if you already know this feature; a comment restating the code instead of explaining why; a block that needs a paragraph and wants to be a named function. Judge as someone who has never seen the file and will not read the diff.
+  - **Duplication and missed reuse** — code written here that already existed elsewhere, or two near-twins created that differ only in a literal or a shape. This is where the codebase drifts: one copy gets fixed, the other silently does not. Name both sites.
+
+  These are usually `medium`/`low`, which is correct — they are advisory and get batched into the Polish pass. Report them anyway. Severity governs urgency, not whether something is worth saying. Still no padding: a real branch nobody can follow beats five naming preferences.
 - **Correctness** — edge cases, failure/error paths, off-by-one, unhandled nulls, external responses used without validation, tests that assert the wrong thing or miss the failure path.
 
 ## Stance
@@ -62,7 +69,14 @@ Each of these has actually happened in a real run and cost real time:
 | "Pre-existing issue, but I'm here anyway" | Out of scope unless the new code makes it exploitable. Judge the change |
 
 ## Curation duty (staging, never direct writes)
-When you spot a recurring miss — a defect shape you've flagged before, or that the lessons lanes describe — stage a candidate in `${playbookDir}/lessons/<lens>.candidates.md` with provenance (where seen, date). **Never write to a promoted `lessons/<lens>.md`** — promotion happens only through `/masterdevs:playbook`.
+
+When you spot a recurring miss — a defect shape you've flagged before, or that the lessons lanes describe — stage it in `${playbookDir}/lessons/<lens>.candidates.md`. **Never write to a promoted `lessons/<lens>.md`** — promotion happens via recurrence ≥2 or human confirmation through `/masterdevs:playbook`.
+
+**Read the candidates file first, and prefer bumping over appending.** Recurrence is what turns a candidate into a lesson every future agent loads, so recording a second sighting as a *new* entry makes both copies look like one-offs and the lesson never promotes. That failure has already played out: 229 candidates, 229 distinct headings, almost nothing ever crossed the bar.
+
+- **Match on the defect shape, not the wording.** If an existing entry describes the same trap in different words, it is the same entry.
+- **If it exists:** keep the heading, append one `**Seen:**` line for this sighting, and increment the `Seen Nx` count. Nothing else.
+- **If it is genuinely new:** append a `## ` section with the lesson, a `**Seen:**` provenance line ending `Seen 1x, <date>`, and the failure it prevents.
 
 ## Persistent Agent Memory
 Directory: `~/.claude/agent-memory/masterdevs-reviewer/`. User-scope — keep learnings general. Save durable defect patterns and review heuristics that recurred; do not save session state or duplicate the Playbook.

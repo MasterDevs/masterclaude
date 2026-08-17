@@ -10,12 +10,28 @@ You maintain the Playbook's integrity. Learned knowledge is **gated**: candidate
 ## Step 0 — Resolve `PLAYBOOK_DIR`
 `${CLAUDE_PLUGIN_DATA}/playbook` if it resolves, else `~/.claude/plugins/data/masterdevs/playbook`.
 
+## Step 1 — Always start here: promote what already qualifies
+
+```
+node ${CLAUDE_PLUGIN_ROOT}/scripts/playbook.mjs --playbook-dir "$PLAYBOOK_DIR" --status
+```
+
+Anything at recurrence ≥2 needs no conversation — it already passed the shipped gate. Promote it with `--promote` and report the count in one line. Only then bring the user into it, so their attention goes to genuine judgment calls rather than rubber-stamping.
+
 ## Modes (ask the user which, or infer from their request)
 
 ### 1. Review candidates (default)
-- Read every `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
-- Present each candidate with its **provenance** (where seen, date, occurrence count) and whether it has met the recurrence-≥2 bar.
-- For each, let the user **promote**, **reject**, or **edit-then-promote**.
+
+Read every `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
+
+**Triage before you present.** There can be hundreds — 229 accumulated before promotion was ever automated, and marching through them one by one is not a review, it is an endurance test. So:
+
+1. **Group by what they actually describe**, not by wording. Near-identical entries written differently are the normal case, because agents used to append instead of bumping. A group of three separate write-ups of one pattern *is* a recurrence-3 pattern — merge them, sum the sightings, and it may now clear the bar on its own.
+2. **Rank groups by sightings, then by how often that area appears in the recent run history.** A pattern in code nobody touches is not worth loading into every future agent.
+3. **Present the top ~10 groups**, each in three lines: what it detects, where it was seen and how often, and your recommendation (promote / reject / needs-an-edit). Then ask. Offer the next batch after.
+4. **Say plainly what you skipped and why** — "142 singletons in areas untouched since July, left staged." Silent truncation reads as completeness.
+
+For each presented candidate, let the user **promote**, **reject**, or **edit-then-promote**.
 - On promote: append a compressed row/entry to the promoted `catalog.md` / `lessons/<lens>.md` in the required format (patterns: `| Name | Intent | Reach for when | Skip when |`, ≤~30 words/cell, no prose, no code samples; lessons: one `**Lesson** — … **Seen:** … **Why:** …` entry). Then remove it from the candidates file.
 - On reject: remove it from candidates (optionally note why, to avoid re-staging).
 
@@ -25,6 +41,10 @@ When the user says e.g. "when you see X, that's chain-of-responsibility — add 
 ### 3. Prune
 - Flag catalog files exceeding ~150 lines and lessons lanes that have grown noisy.
 - Remove stale, superseded, or never-triggered entries the user confirms. Density is a feature — a bloated catalog stops firing.
+
+### 4. Merge duplicates
+
+Agents now bump an existing candidate's count instead of appending a new one, but the backlog written before that rule is full of the same lesson recorded several times under different headings. Merging them is not housekeeping — **recurrence is what promotes**, so three separate write-ups of one pattern currently look like three one-offs and none of them ever qualifies. Merge on the shape being detected, keep the clearest wording, and carry every provenance line across so the summed count is honest.
 
 ## Rules
 - **Never** promote without user confirmation unless a candidate has genuinely recurred ≥2 (and even then, show it before writing).

@@ -33,7 +33,8 @@ const REFINE = {
 const PLAN = {
   summary: 's', lenses: ['correctness'],
   claims: [{ claim: 'only two call sites read the stamp', check: 'grep -c stamp', ifWrong: 'step 2 misses one' }],
-  steps: [{ title: 't', intent: 'i', files: ['f.py'], guidance: ['g'], acceptance: ['a'] }],
+  steps: [{ title: 't', intent: 'i', files: ['f.py'], guidance: ['g'],
+    reuse: ['extend helpers.py::normalize rather than writing a second one'], acceptance: ['a'] }],
 }
 const APPROVED = { refine: REFINE, plan: PLAN }
 const claimsOk = { results: [{ claim: 'only two call sites read the stamp', verdict: 'verified', evidence: '2 matches' }] }
@@ -90,9 +91,11 @@ async function drive(args, responder) {
   const calls = []
   const schemaErrors = []
   const schemas = {}
+  const prompts = {}          // every prompt by label, for scenarios asserting on more than one
   const agent = async (prompt, opts) => {
     calls.push(opts.label)
     schemas[opts.label] = opts.schema
+    prompts[opts.label] = prompt
     const out = await responder(opts.label, prompt)
     // null is a legal agent result (the workflow handles it); anything else must match the contract.
     if (out != null && opts.schema) schemaErrors.push(...validate(out, opts.schema, opts.label))
@@ -101,7 +104,7 @@ async function drive(args, responder) {
   const parallel = async (thunks) =>
     Promise.all(thunks.map(async (t) => { try { return await t() } catch { return null } }))
   const result = await wf(args, agent, parallel, () => {}, () => {}, undefined)
-  return { calls, result, schemaErrors, schemas }
+  return { calls, result, schemaErrors, schemas, prompts }
 }
 
 const rounds = (calls) => calls.filter((c) => /^implement:\d+$/.test(c)).length
@@ -356,7 +359,7 @@ const scenarios = [
         verifyOn: 'deal 867 in the dev database' } },
     responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
     capturePrompt: 'refine',
-    expect: ({ result, prompt, schemas }) => [
+    expect: ({ result, prompt, schemas, prompts }) => [
       [result.outcome === 'awaiting-plan-approval', `got ${result.outcome}`],
       [/Out of scope: NOPE/.test(prompt), 'the confirmed intent must reach Refine'],
       [/SETTLED/.test(prompt), 'Refine must be told not to reopen scope'],
@@ -375,6 +378,12 @@ const scenarios = [
         'a claim needs the statement, the check that settles it, and what breaks if it is false'],
       [(schemas['refine']?.properties?.verifyMethod?.required || []).includes('dataSource'),
         'verifyMethod must name where the proof comes from'],
+      // Reuse is REQUIRED, not optional: an optional field simply goes unanswered, and the Architect is
+      // the only agent that reads the codebase with the whole design in view.
+      [(schemas['plan']?.properties?.steps?.items?.required || []).includes('reuse'),
+        'every plan step must answer what existing code it should reuse'],
+      [/Search the whole repository, not just/.test(prompts['plan'] || ''),
+        "the Architect must look beyond the step's own files for what to reuse"],
     ],
   },
   {
@@ -531,6 +540,48 @@ const scenarios = [
           'an impossible criterion must name itself and say why it cannot be met'],
       ]
     },
+  },
+  {
+    // The design/modularity lens has produced ZERO findings across 38 blocking results, so the three
+    // craft goals are enforced as prompt contracts rather than hoped for. Reuse in particular is a
+    // required PLAN field: the Architect is the only agent reading the codebase with the whole design
+    // in view, so a duplicate it misses is one nobody catches.
+    name: 'craft goals reach the engineer, and reuse is a required plan answer',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['low']) : iter({}),
+    capturePrompt: 'implement:1',
+    expect: ({ prompt, schemas }) => [
+      [/Branching stays low/.test(prompt), 'the complexity bar must reach the engineer'],
+      [/cold reader/i.test(prompt), 'the readability bar must reach the engineer'],
+      [/Reuse before writing/.test(prompt), 'the reuse bar must reach the engineer'],
+      [/extend helpers\.py::normalize/.test(prompt),
+        "the plan's concrete reuse targets must reach the engineer, or naming them achieves nothing"],
+    ],
+  },
+  {
+    // A duplicate only ever found inside the changed files is one that will never be found: the copy
+    // that matters is almost always in a module the feature never touched.
+    name: 'refactor hunts reuse across the whole repo, but edits only in scope',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') || l === 'polish' ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? find(['low']) : iter({}),
+    capturePrompt: 'refactor:1',
+    expect: ({ prompt }) => [
+      [/WHOLE codebase, not just this feature/.test(prompt),
+        'refactor must search beyond the feature or it cannot find the copy that matters'],
+      [/Read anywhere; edit narrowly/.test(prompt), 'searching wide must not license editing wide'],
+      [/refactor-backlog\.md/.test(prompt), 'out-of-scope reuse work needs somewhere to land'],
+      [/EDITING scope — it is not a limit on where you may look/.test(prompt),
+        'the old "the plan is your scope" wording confined the search to the feature'],
+      [/Unbounded exploration/.test(prompt), 'the search still has to be bounded — that lesson was expensive'],
+    ],
   },
   {
     name: 'standalone — no inlined args, falls back to loader agents',

@@ -70,7 +70,16 @@ What does not: restatements of the requirements, or of your own design intent. O
 **A claim you are unsure of is better listed than omitted** — listing it is how you find out. These are checked against the real code before the human sees your plan, and a refuted one comes straight back to you for revision. Blast-radius claims are especially worth stating: a count that comes back an order of magnitude high is exactly what the user needs at the approval gate.
 
 ## Curation duty (staging, never direct writes)
-When you spot a recurring shape that isn't in a catalog — or existing code that clearly wants a pattern — **stage a candidate** in `patterns/<domain>/candidates.md` with provenance (where seen, date, count). If the external reviewer memory (`~/.claude/agent-memory/eng-skills-pr-reviewer/`) exists, mine it for candidate patterns too. **Never write to a promoted `catalog.md` directly** — promotion happens only via recurrence ≥2 or human confirmation through `/masterdevs:playbook`.
+
+When you spot a recurring shape that isn't in a catalog — or existing code that clearly wants a pattern — stage it in `patterns/<domain>/candidates.md`. If the external reviewer memory (`~/.claude/agent-memory/eng-skills-pr-reviewer/`) exists, mine it for candidates too. **Never write to a promoted `catalog.md` directly** — promotion happens via recurrence ≥2 or human confirmation through `/masterdevs:playbook`.
+
+**Read the candidates file before you write to it, and prefer bumping over appending.** Recurrence is what promotes a candidate into knowledge every future agent loads, so a second sighting recorded as a *new* entry is worse than useless — it makes both copies look like one-offs and the pattern never promotes. This has already happened at scale: 229 candidates accumulated with 229 distinct headings and almost none ever crossed the bar.
+
+So:
+
+1. Scan the existing headings for the same underlying shape — **judge by the smell it detects, not by the wording.** "Canonical test double at the client factory" and "One conftest fixture replacing per-file fakes" are the same entry.
+2. **If it exists:** leave the heading alone, append one `Provenance` line for this sighting, and increment the `Seen Nx` count. That is the whole edit.
+3. **Only if it is genuinely new:** append a `## ` section with `Intent`, `Reach for when`, `Skip when`, and `Provenance … Seen 1x, <date>`. Those first three become the catalog row verbatim on promotion — a candidate missing any of them cannot be promoted mechanically and waits for a human.
 
 ## Stance
 Plan for security > reliability > velocity. Design the simplest structure that satisfies the brief; match pattern complexity to problem complexity; avoid speculative abstraction. If the brief is ambiguous on anything security- or correctness-sensitive, say so in the plan rather than guessing.

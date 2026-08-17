@@ -139,6 +139,10 @@ Agents share a knowledge base — per-domain **pattern catalogs** (detection rec
 
 New patterns and lessons are **staged as candidates** with provenance. They only become promoted (loaded by agents) via recurrence ≥2 **or** your confirmation through `/masterdevs:playbook`. Ungated promotion is treated as a security-relevant action — a bad lesson would inject into every future agent.
 
+The `recurrence ≥2` half runs automatically at the start of every feature (`scripts/playbook.mjs --promote`, deterministic, no models), so **what one run learns, the next run knows.** It had to be built: for weeks that rule was policy with no code behind it, and 229 candidates accumulated — 16 already past the bar — while every promoted file still held its empty seed header and every agent started from zero. Learned entries land in a `## Learned` section, separate from the shipped taxonomy.
+
+The Playbook is **one store shared by every repo you run against** (22 worktrees feed this one), so a pattern earned in the backend is loaded by the next frontend run whose domain matches. Domain and lens routing keeps it relevant rather than noisy.
+
 ## Extending the Review Panel
 
 `/masterdevs:roster` registers a reviewer with a lens, triggers (`always` / `lenses` / `globs` / `sensitiveTier`), a model, and a lessons lane. Its findings flow back into the lessons engineers preload, so the team gets better at avoiding what your reviewers catch.

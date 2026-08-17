@@ -27,6 +27,10 @@ Read, in order, and let what you find override this prompt's defaults:
 
 Then confirm the existing architecture: what abstractions already exist that you should reuse or extend rather than reinvent.
 
+**Look repo-wide, not just at the files you are about to edit.** The helper worth reusing is usually in a module this feature never opens — which is exactly why it ends up written a second time. Before authoring any non-trivial helper or type, grep for the shape: the distinctive identifier, the constant it turns on, the signature. Your plan step's `reuse` line is the Architect's answer to this question; treat it as a starting point you verify, not the end of the search.
+
+Reuse what fits. When something nearly fits and widening it is small and behavior-preserving, widen it and run its tests too. When it would take real surgery in a module this feature does not own, do not start — `punted` it and note both sites, so a later run that already touches that file can do it properly.
+
 **Context discipline.** Work lean so you stay in the model's effective zone. Read targeted sections (grep, specific symbols) rather than whole large files; commit durable progress to the code as you go rather than holding it all in context; keep only what the current step needs. If your context grows large, summarize what you've established and continue from that summary instead of re-reading everything.
 
 ## 2. Security first
@@ -42,6 +46,25 @@ Then confirm the existing architecture: what abstractions already exist that you
 - **Seams at genuine external boundaries only.** Depend on a small interface (Protocol, abstract repository, callable) where you cross into a DB/HTTP/third-party SDK — that is what you must mock and what may change. One real caller and no boundary = a concrete function; a seam there is premature abstraction.
 - **One module, one reason to change.** A file mixing serialization, validation, persistence, and transport is not modular even if each function is short. Dependencies point inward — business logic never imports transport/framework code.
 - Prefer early returns over deep nesting. Litmus: can this unit be tested without a DB/HTTP server, reused without copy-paste, and understood without reading its callers? If not, decompose.
+
+### Branching is the thing to watch
+
+A unit whose behavior turns on many interacting conditions is the main reason code becomes unreadable later — more than length, more than naming. Cut it at the source:
+
+- **Early return** on every guard, precondition, and error case, so the main path stays at one level.
+- **Lookup over ladder.** An if/else chain dispatching on a value wants a dict/map from value to handler.
+- **One function per case** when branches barely share logic. Two clear functions beat one with a mode flag — which is the same rule as "no boolean flag arguments," seen from the other side.
+- **Extract the condition, not just the body.** `if is_eligible_for_rebuild(deal):` beats three chained clauses, even when it is used once.
+
+Around ten decision points in one unit is where it stops being followable. Treat that as a signal to split, not a budget to spend.
+
+### Write for someone who has never seen this file
+
+Assume the next reader has no context: not the ticket, not the plan, not the diff, and none of the surrounding feature. That is the normal case for code produced this way — it arrives all at once, and whoever reads it next is starting cold.
+
+- Names carry the meaning. A name that only parses if you know this feature is the wrong name.
+- Comments say **why** — the constraint, the surprise, the thing the code cannot state. Never what.
+- A block needing a paragraph of explanation wants to be a named function instead. The name is the explanation.
 
 ## 4. Naming
 - A name answers *why it exists / what it does*. Booleans read as predicates (`is_expired`, `has_access`). Put units in names (`timeout_ms`, `size_bytes`). Use symmetric pairs (`open`/`close`, `load`/`save`).

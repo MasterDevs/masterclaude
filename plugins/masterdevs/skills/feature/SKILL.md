@@ -25,6 +25,15 @@ The engine is a single RPI-style loop in one worktree — **Refine → Plan → 
    `cp -R "$PLUGIN_ROOT/playbook-seeds/" "$PLAYBOOK_DIR"` — then write `$PLAYBOOK_DIR/SEED_VERSION` with the contents of `$PLUGIN_ROOT/playbook-seeds/VERSION`.
 2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` < shipped `VERSION`: **merge, don't clobber.** For each seed `catalog.md`/roster, add only entries whose pattern/name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
 3. Ensure candidate staging files exist (create empty with headers if missing): `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
+4. **Close the learning loop before this run's agents load anything:**
+
+   ```
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/playbook.mjs --playbook-dir "$PLAYBOOK_DIR" --promote
+   ```
+
+   Deterministic, no models, under a second. It promotes every candidate seen ≥2 times into the lanes agents actually load, so **what the last run learned, this run knows.** Report it in one line only if something moved (`promoted 3 pattern(s) into the catalog`); say nothing when there's nothing to promote.
+
+   This exists because the `recurrence ≥2` half of the promotion gate was policy with no code behind it. Candidates piled up for weeks — 229 of them, 16 already past the bar — while every promoted file still held its empty seed header and every agent started from zero. Anything below the bar stays staged for `/masterdevs:playbook`, which is still the only way a one-off gets promoted.
 
 ## Step 2 — Interview the user until the intent is settled
 
