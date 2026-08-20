@@ -71,12 +71,18 @@ const repoNotesPath = runDir ? `${runDir}/../verify-repo-notes.md` : null
 // The first verification of a run pays the discovery cost; nothing after it should pay again.
 const verifyMemory = !verifyLogPath ? `` :
   `\n**Read these before running anything** (either may be absent — then you are the one who creates it):\n` +
-  `- ${repoNotesPath} — how to operate THIS REPO: the env setup, the suite command and its runtime, how to\n` +
-  `  run one test, how to reach the app or database. Stable across features. TRUST IT; do not re-derive it.\n` +
+  `- ${repoNotesPath} — how to operate THIS REPO: the env setup, how to reach the app or database and how\n` +
+  `  to authenticate (seeded test account or dev login), and the\n` +
+  `  FASTEST correct way to run tests — the full suite (with its measured runtime), a scoped subset, one\n` +
+  `  test — plus what makes runs slow here and when expensive setup (say, a fresh test database) is truly\n` +
+  `  required versus reusable. Stable across features. TRUST IT; do not re-derive it.\n` +
   `- ${verifyLogPath} — this run's log: which criteria already passed, and how each was proven.\n\n` +
   `**Then update both**, before you return:\n` +
   `- If anything in the repo notes was wrong or missing, correct it — a stale note costs every future run.\n` +
   `  Keep it short and command-shaped. No feature specifics; they do not generalize.\n` +
+  `  If you proved a faster correct invocation than the notes record (a parallel runner mode, reusing\n` +
+  `  expensive setup instead of rebuilding it, a narrower scope that proves the same thing), record it WITH\n` +
+  `  its measured runtime — the notes should always name the fastest invocation anyone has proven correct.\n` +
   `- Append this pass to the run log: per criterion, the verdict and the exact command that settled it.\n\n` +
   `**Do not go exploring.** If the notes tell you how to run something, run it. If they do not, work it out\n` +
   `ONCE, write it down, and move on. Verification that goes spelunking is the single most expensive failure\n` +
@@ -84,6 +90,56 @@ const verifyMemory = !verifyLogPath ? `` :
   `from nothing, which has cost more than any other single thing this loop does. If you genuinely cannot\n` +
   `establish how to exercise a criterion, mark it unproven with the reason and return — that is a useful\n` +
   `result. Burning the budget hunting for it is not.\n`
+
+// The full test suite is the other place verification money goes — as wall clock, not tokens. Transcript
+// analysis across three real runs: one suite run is minutes of pure wait in a real repo, it was being run
+// dozens of times per round by every kind of agent, and suite runs plus the loops polling them were
+// 70-90% of ALL tool-execution time — the single largest wall-clock cost in the system. Two rules fix
+// that without naming any language or test runner:
+//   1. Exactly ONE full-suite gate per round, owned by Verify. Mutating agents run scoped tests only.
+//   2. A suite pass is a fact about a tree state. Fingerprint the tree when the suite goes green, and
+//      never re-run the suite on a fingerprint that already passed.
+// The fingerprint is exact and read-only: it stages the worktree (untracked files included, .gitignore
+// respected) into a THROWAWAY index and hashes the resulting tree. The real index is never touched.
+// (`mktemp -u` on purpose: git refuses a pre-created empty file as an index, so hand it a fresh name.)
+const FINGERPRINT_CMD =
+  `IDX="$(mktemp -u)" && GIT_INDEX_FILE="$IDX" git add -A >/dev/null 2>&1 && GIT_INDEX_FILE="$IDX" git write-tree && rm -f "$IDX"`
+
+const SUITE_GATE_RULE =
+  `\n\n**The full-suite gate.** You are the ONE agent in this round that runs the full test suite — every ` +
+  `other agent runs scoped tests only. Before running it, compute the worktree fingerprint (read-only — ` +
+  `it uses a throwaway index, never the real one):\n  ${FINGERPRINT_CMD}\n` +
+  (verifyLogPath
+    ? `If the most recent \`suite-green:\` line in ${verifyLogPath} records this exact fingerprint, the ` +
+      `suite already passed on this tree — carry it forward as passing instead of re-running it, and note ` +
+      `that in the log. When the suite passes, append \`suite-green: <fingerprint> (<suite command>, ` +
+      `<runtime>)\` to that log, and `
+    : `When the suite passes, `) +
+  `return the fingerprint as \`suiteFingerprint\` (omit it when the suite did not pass or did not run).`
+
+// A real run changed the user's password so it could log in and verify — locking the user out of their
+// own app mid-test. "Risky/destructive" doesn't catch that: it's reversible and it serves the check.
+const SHARED_STATE_RULE =
+  `\n\nThe local app and database are the user's live workspace — they may be using them right now. ` +
+  `Existing data, accounts, and credentials are read-only. Never change a password or take over an ` +
+  `account to get access. Need state? Create new, clearly-labeled throwaway records and log them. ` +
+  `Anything that would alter existing state goes in \`needsApprovalFor\`. ` +
+  `If live verification needs a login you can't obtain via a seeded test account or self-service path, ` +
+  `mark those criteria unproven with the blocking reason and return — never wait on the user, never ` +
+  `borrow an existing account.`
+
+// Appended to every agent that MUTATES the tree (implement, refactor, verify-fix, polish). Verify gets
+// SUITE_GATE_RULE instead — the two rules are the same policy seen from either side of the gate.
+const TEST_SCOPE_RULE =
+  `\n\nTests: run ONLY tests scoped to what you touched — the tests for your changed code and any directly ` +
+  `affected neighbors. Do NOT run the repository's full test suite, not even once "to be safe": a dedicated ` +
+  `Verify agent runs it exactly once per round as the regression gate, and a full-suite run here is minutes ` +
+  `of pure wait that buys nothing the gate won't.` +
+  (repoNotesPath
+    ? ` Before your first test run, read ${repoNotesPath} (may be absent) — it records this repo's fastest ` +
+      `proven test invocations: scoped runs, one test, which expensive setup is reusable. If you prove a ` +
+      `faster correct invocation than it records, update it with the measured runtime.`
+    : ``)
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 const REFINE_SCHEMA = {
@@ -289,6 +345,10 @@ const VERIFY_SCHEMA = {
     } },
     failures: { type: 'array', items: { type: 'string' } },           // concrete failing behaviors to fix
     needsApprovalFor: { type: 'array', items: { type: 'string' } },   // risky steps it declined to run
+    // Worktree fingerprint (tree hash) the full suite passed on — see SUITE_GATE_RULE. Lets any later
+    // step (the final regression net, a pre-push check in the calling session) skip re-running the suite
+    // when the tree hasn't changed since it went green. Absent when the suite didn't pass or didn't run.
+    suiteFingerprint: { type: 'string' },
     // Criteria the CODE cannot satisfy — the target itself is wrong. Distinct from `failures`, which
     // are things an engineer can go fix. Sending a fix agent at one of these produces nothing but cost:
     // one real run spent three repair attempts and five verification passes on a dollar figure that was
@@ -617,6 +677,7 @@ let iteration = 0
 let lastFindings = []
 let verifyPassed = false
 let verifyNeedsApproval = []
+let suiteGreen = null              // worktree fingerprint the full suite last passed on (see SUITE_GATE_RULE)
 let impossibleCriteria = []   // criteria correct code can never satisfy — the target itself is wrong
 let reviewStale = false            // Verify applied fixes after Review read the tree
 // Rationale breadcrumb threaded forward so each fresh agent inherits the prior agent's key decisions
@@ -645,7 +706,7 @@ while (iteration < MAX_ITERATIONS) {
       `(Plan context)\n${planBlock}` + notesBlock()
   // No CONTEXT_DISCIPLINE here — engineer.md opens with the same rule. It stays on the general-purpose
   // calls (Refine, Verify, the checks), which have no agent definition to carry it.
-  const implFull = implPrompt + CHANNELS
+  const implFull = implPrompt + TEST_SCOPE_RULE + CHANNELS
   const impl = collect(await agent(implFull, {
     label: `implement:${iteration}`, phase: 'Implement',
     agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA,
@@ -682,7 +743,7 @@ while (iteration < MAX_ITERATIONS) {
     `nothing worth doing is a valid answer — say so rather than inventing churn.\n\n` +
     `The plan below is your EDITING scope — it is not a limit on where you may look. Do NOT go looking ` +
     `for a plan file on disk; ` +
-    `there isn't one.\n\n${planBlock}\n\nChanged files: ${changedFiles.join(', ')}\n${playbookNote}` + CHANNELS,
+    `there isn't one.\n\n${planBlock}\n\nChanged files: ${changedFiles.join(', ')}\n${playbookNote}` + TEST_SCOPE_RULE + CHANNELS,
     { label: `refactor:${iteration}`, phase: 'Refactor', agentType: 'masterdevs:engineer', model: 'sonnet', schema: REFACTOR_SCHEMA }
   ))
   if (refactor) { changedFiles = merge(changedFiles, refactor.changedFiles); if (refactor.notes) carryNotes = refactor.notes }
@@ -718,7 +779,8 @@ while (iteration < MAX_ITERATIONS) {
   const verifyPrompt = (attempt, fixed) =>
     `Exercise the implementation against the success criteria and report pass/fail per criterion. ` +
     `${attempt > 0 && fixed && fixed.length ? fixScope(fixed) : verifyScope} ` +
-    `Do NOT run any risky/destructive step; list those under needsApprovalFor instead.\n` + verifyMemory + `\n` +
+    `Do NOT run any risky/destructive step; list those under needsApprovalFor instead.` +
+    SHARED_STATE_RULE + `\n` + verifyMemory + SUITE_GATE_RULE + `\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
     `Verify method:\n${JSON.stringify(refine.verifyMethod, null, 2)}\n\n` +
     `Changed files: ${changedFiles.join(', ')}\n` +
@@ -769,7 +831,8 @@ while (iteration < MAX_ITERATIONS) {
     log(`verify fix ${vAttempt}/${MAX_VERIFY_FIX} (${justFixed.length} failing)`)
     const fix = collect(await agent(
       `Verification failed. Fix ONLY these failing behaviors in the current worktree, then report changed files. ` +
-      `Keep the rest of the tests green.\n\nFailures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock() + CHANNELS,
+      `A fresh verification (which owns the full-suite gate) runs right after you return.\n\n` +
+      `Failures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock() + TEST_SCOPE_RULE + CHANNELS,
       { label: `implement:${iteration}.fix${vAttempt}`, phase: 'Verify', agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA }
     ))
     if (!fix || fix.status === 'blocked') break
@@ -780,6 +843,7 @@ while (iteration < MAX_ITERATIONS) {
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
   verifyPassed = !!(verify && verify.passed)
+  if (verifyPassed && verify.suiteFingerprint) suiteGreen = verify.suiteFingerprint
   if (verify && (verify.impossible || []).length) {
     impossibleCriteria = merge(impossibleCriteria, verify.impossible.map((i) => `${i.criterion}: ${i.why}`))
     log(`${verify.impossible.length} criterion/criteria cannot be satisfied as written — stopping for the user`)
@@ -835,9 +899,10 @@ if (polish.length && !conflicts.length && !impossibleCriteria.length) {
   const pol = collect(await agent(
     `Apply ONLY these low-risk revisions to the existing implementation in the current worktree, then report ` +
     `changed files. They are advisory (medium/low severity) cleanups, already judged safe to apply unsupervised. ` +
-    `Keep every test green, stay strictly in scope, and skip any revision that turns out to need a design change — ` +
-    `list those in \`notes\` instead of forcing them.\n\n` +
-    `Revisions:\n${polish.map((r) => `- ${r}`).join('\n')}\n\n(Plan context)\n${planBlock}` + notesBlock() + CHANNELS,
+    `Keep the tests you touch green, stay strictly in scope, and skip any revision that turns out to need a design ` +
+    `change — list those in \`notes\` instead of forcing them. A regression net (which owns the full-suite gate) ` +
+    `runs right after you return.\n\n` +
+    `Revisions:\n${polish.map((r) => `- ${r}`).join('\n')}\n\n(Plan context)\n${planBlock}` + notesBlock() + TEST_SCOPE_RULE + CHANNELS,
     { label: 'polish', phase: 'Polish', agentType: 'masterdevs:engineer', model: 'sonnet', schema: IMPLEMENT_SCHEMA }
   ))
   if (pol && pol.status !== 'blocked') {
@@ -847,19 +912,22 @@ if (polish.length && !conflicts.length && !impossibleCriteria.length) {
   }
 }
 
-// Final regression net over anything that landed after the last full verification (polish edits, verify fixes).
-// Skipped when verification is already red — there's nothing to protect, and the user is getting it back anyway.
-if (verifyPassed && (polishApplied.length || reviewStale)) {
+// Final regression net over anything that landed after the last suite gate. Only polish edits can land
+// there: the verify fix loop always ENDS with a fresh verify — its own suite run — after the last fix,
+// so `reviewStale` alone means the tree is unchanged since a green gate, and re-running the suite on an
+// unchanged tree was pure waste (this pass measured 19 minutes on average). Skipped when verification is
+// already red — there's nothing to protect, and the user is getting it back anyway.
+if (verifyPassed && polishApplied.length) {
   phase('Polish')
   const finalVerify = await agent(
     `Confirm nothing regressed. Run the test suite ONCE and re-check only the success criteria that the changes ` +
-    `below could plausibly affect — do not re-prove the rest, and do not run risky/destructive steps.\n` +
-    verifyMemory +
+    `below could plausibly affect — do not re-prove the rest, and do not run risky/destructive steps.` +
+    SHARED_STATE_RULE + `\n` + verifyMemory + SUITE_GATE_RULE + `\n` +
     `This is a regression net, not a fresh verification: it has run at 19 minutes on average, longer than the ` +
     `first full pass it is supposed to be a cheap follow-up to. If the changes below are low-risk cleanups, the ` +
     `suite alone is the answer.\n\n` +
     `Changes since the last full verification:\n` +
-    `${[...polishApplied, ...(reviewStale ? ['fixes applied for earlier verification failures'] : [])].map((r) => `- ${r}`).join('\n')}\n\n` +
+    `${polishApplied.map((r) => `- ${r}`).join('\n')}\n\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
     `Changed files: ${changedFiles.join(', ')}` + CONTEXT_DISCIPLINE,
     { label: 'verify:final', phase: 'Polish', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA }
@@ -867,6 +935,7 @@ if (verifyPassed && (polishApplied.length || reviewStale)) {
   if (finalVerify) {
     verifyPassed = !!finalVerify.passed
     verifyNeedsApproval = finalVerify.needsApprovalFor || verifyNeedsApproval
+    if (finalVerify.passed && finalVerify.suiteFingerprint) suiteGreen = finalVerify.suiteFingerprint
   }
 }
 
@@ -899,6 +968,8 @@ return {
   iterations: iteration,
   changedFiles,
   verifyPassed,
+  suiteGreen,                 // worktree fingerprint the full suite passed on — a later step that wants a
+                              // suite run (pre-push checks) recomputes the fingerprint and skips if it matches
   verifyNeedsApproval,        // risky steps Verify declined to run — need human
   conflicts,                  // clash with requirements/plan — user decides
   impossibleCriteria,         // the target itself is wrong — only the user can fix the criterion
