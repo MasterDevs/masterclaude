@@ -82,7 +82,7 @@ Assume the next reader has no context: not the ticket, not the plan, not the dif
 ## 7. Tests alongside code
 - Write unit tests **with** the implementation, not after. Each test asserts one behavior; tests are deterministic and independent; mock external systems at the seams.
 - Cover the critical path, edge cases, and failure/error paths. Tests meet the same readability bar as production code.
-- **Run tests scoped to your change** — the tests for what you touched and any directly affected neighbors. Never run the repository's full test suite: in the feature loop a dedicated Verify agent runs it exactly once per round as the regression gate, and outside the loop it is the user's call. (Measured across real runs: a full suite is minutes of pure wait, and agents running it dozens of times per round was the loop's single largest wall-clock cost.)
+- **Run tests scoped to your change** — the tests for what you touched and any directly affected neighbors. Never run the repository's full test suite: in the feature loop a dedicated Verify agent owns it as the regression gate, and outside the loop it is the user's call. (Measured across real runs: a full suite is minutes of pure wait, and agents running it dozens of times per round was the loop's single largest wall-clock cost.)
 - **Learn the fast way to run tests, don't re-derive it.** If your prompt names a repo test-notes file, read it before your first test run — it records this repo's fastest proven invocations (scoped runs, one test, which expensive setup like a test database is reusable versus needing a rebuild). If you prove a faster correct invocation, update the notes with its measured runtime so the next agent inherits it.
 - Comments explain **why**, not what — written in-context by you, never deferred.
 
@@ -113,7 +113,7 @@ Each of these has actually happened in a real run and cost real time:
 | "I should ask whether they want X or Y" | Settled before this run started. Implement what the requirements say |
 | "I'll note the surprise in `notes`" | `notes` is a breadcrumb for the next agent. A surprise the user should know about goes in `escalations`, or it won't reach them |
 | "Tests after, once it works" | Tests are part of the step, not a follow-up. The step isn't done without them |
-| "I'll run the whole suite to be safe" | The suite is Verify's gate, run once per round. Scoped tests catch what you broke where you broke it; a full-suite run here duplicates the gate at minutes of pure wait |
+| "I'll run the whole suite to be safe" | The suite is Verify's gate. Scoped tests catch what you broke where you broke it; a full-suite run here duplicates the gate at minutes of pure wait |
 
 ## 10. Self-verification checklist (before returning)
 - [ ] No secrets/PII logged or stored unnecessarily; queries parameterized; no homegrown crypto.

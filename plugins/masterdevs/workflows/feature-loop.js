@@ -99,23 +99,31 @@ const verifyMemory = !verifyLogPath ? `` :
 //   1. Exactly ONE full-suite gate per round, owned by Verify. Mutating agents run scoped tests only.
 //   2. A suite pass is a fact about a tree state. Fingerprint the tree when the suite goes green, and
 //      never re-run the suite on a fingerprint that already passed.
-// The fingerprint is exact and read-only: it stages the worktree (untracked files included, .gitignore
-// respected) into a THROWAWAY index and hashes the resulting tree. The real index is never touched.
-// (`mktemp -u` on purpose: git refuses a pre-created empty file as an index, so hand it a fresh name.)
+// The fingerprint is exact and leaves the worktree and real index untouched: it stages the worktree
+// (untracked files included, .gitignore respected) into a THROWAWAY index and hashes the resulting tree.
+// (It does write throwaway objects into .git/objects — harmless, gc reclaims them.)
+// (`mktemp -u` on purpose: git refuses a pre-created empty file as an index, so hand it a fresh name.
+// stderr stays visible so a failure is diagnosable, and rm runs even when a step fails.)
 const FINGERPRINT_CMD =
-  `IDX="$(mktemp -u)" && GIT_INDEX_FILE="$IDX" git add -A >/dev/null 2>&1 && GIT_INDEX_FILE="$IDX" git write-tree && rm -f "$IDX"`
+  `IDX="$(mktemp -u)"; GIT_INDEX_FILE="$IDX" git add -A >/dev/null && GIT_INDEX_FILE="$IDX" git write-tree; rm -f "$IDX"`
 
 const SUITE_GATE_RULE =
-  `\n\n**The full-suite gate.** You are the ONE agent in this round that runs the full test suite — every ` +
-  `other agent runs scoped tests only. Before running it, compute the worktree fingerprint (read-only — ` +
-  `it uses a throwaway index, never the real one):\n  ${FINGERPRINT_CMD}\n` +
+  `\n\n**The full-suite gate.** The full test suite runs only in Verify, and never on a tree it has ` +
+  `already passed on — every other agent runs scoped tests only. Before running it, compute the worktree ` +
+  `fingerprint (leaves the worktree and real index untouched — it stages into a throwaway index):\n` +
+  `  ${FINGERPRINT_CMD}\n` +
   (verifyLogPath
     ? `If the most recent \`suite-green:\` line in ${verifyLogPath} records this exact fingerprint, the ` +
       `suite already passed on this tree — carry it forward as passing instead of re-running it, and note ` +
-      `that in the log. When the suite passes, append \`suite-green: <fingerprint> (<suite command>, ` +
-      `<runtime>)\` to that log, and `
-    : `When the suite passes, `) +
-  `return the fingerprint as \`suiteFingerprint\` (omit it when the suite did not pass or did not run).`
+      `that in the log. `
+    : ``) +
+  `When the suite passes, recompute the fingerprint — a suite that writes artifacts (coverage files, ` +
+  `snapshots) changes the tree, and only the post-run hash is true afterwards` +
+  (verifyLogPath
+    ? `. Append \`suite-green: <post-run fingerprint> (<suite command>, <runtime>)\` to that log — noting ` +
+      `when it differs from the pre-run hash — and `
+    : `, and `) +
+  `return it as \`suiteFingerprint\` (omit it when the suite did not pass or did not run).`
 
 // A real run changed the user's password so it could log in and verify — locking the user out of their
 // own app mid-test. "Risky/destructive" doesn't catch that: it's reversible and it serves the check.
@@ -133,7 +141,7 @@ const SHARED_STATE_RULE =
 const TEST_SCOPE_RULE =
   `\n\nTests: run ONLY tests scoped to what you touched — the tests for your changed code and any directly ` +
   `affected neighbors. Do NOT run the repository's full test suite, not even once "to be safe": a dedicated ` +
-  `Verify agent runs it exactly once per round as the regression gate, and a full-suite run here is minutes ` +
+  `Verify agent owns it as the round's regression gate, and a full-suite run here is minutes ` +
   `of pure wait that buys nothing the gate won't.` +
   (repoNotesPath
     ? ` Before your first test run, read ${repoNotesPath} (may be absent) — it records this repo's fastest ` +
@@ -756,7 +764,8 @@ while (iteration < MAX_ITERATIONS) {
   const readOnlyRule =
     `\n\nSTRICT read-only: a reviewer is reading this same worktree concurrently. Do NOT edit, create, or delete ` +
     `any file, and do NOT run \`git stash\`/\`checkout\`/\`reset\`/\`clean\` or anything else that mutates the tree. ` +
-    `You need no baseline comparison — judge the code as it stands. Report problems; someone else fixes them.`
+    `You need no baseline comparison — judge the code as it stands. Report problems; someone else fixes them. ` +
+    `One exception: the run log and repo notes named above live OUTSIDE the worktree — updating them is required.`
   const verifyScope = iteration === 1
     ? `Run the test suite, then exercise it LIVE per the verify method (boot the app, hit endpoints, run integration).`
     : `This code verified clean in an earlier round; only these revisions have landed since:\n` +
@@ -843,7 +852,9 @@ while (iteration < MAX_ITERATIONS) {
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
   verifyPassed = !!(verify && verify.passed)
-  if (verifyPassed && verify.suiteFingerprint) suiteGreen = verify.suiteFingerprint
+  // suiteFingerprint is only returned when the SUITE passed — a fact about the tree that stands even
+  // when a live criterion failed. Staleness is harmless: consumers compare it to the current tree.
+  if (verify && verify.suiteFingerprint) suiteGreen = verify.suiteFingerprint
   if (verify && (verify.impossible || []).length) {
     impossibleCriteria = merge(impossibleCriteria, verify.impossible.map((i) => `${i.criterion}: ${i.why}`))
     log(`${verify.impossible.length} criterion/criteria cannot be satisfied as written — stopping for the user`)
@@ -894,6 +905,7 @@ while (iteration < MAX_ITERATIONS) {
 // Skipped on an unreachable target for the same reason as a conflict: the requirements are going back to
 // the user, so this code is likely to move again. Polish costs a real agent (~150-250K tokens observed).
 let polishApplied = []
+let polishTouchedTree = false      // a polish agent that edited and THEN blocked still dirties the tree
 if (polish.length && !conflicts.length && !impossibleCriteria.length) {
   phase('Polish')
   const pol = collect(await agent(
@@ -905,10 +917,13 @@ if (polish.length && !conflicts.length && !impossibleCriteria.length) {
     `Revisions:\n${polish.map((r) => `- ${r}`).join('\n')}\n\n(Plan context)\n${planBlock}` + notesBlock() + TEST_SCOPE_RULE + CHANNELS,
     { label: 'polish', phase: 'Polish', agentType: 'masterdevs:engineer', model: 'sonnet', schema: IMPLEMENT_SCHEMA }
   ))
-  if (pol && pol.status !== 'blocked') {
+  if (pol) {
+    polishTouchedTree = (pol.changedFiles || []).length > 0
     changedFiles = merge(changedFiles, pol.changedFiles)
-    polishApplied = polish
-    if (pol.notes) carryNotes = pol.notes
+    if (pol.status !== 'blocked') {
+      polishApplied = polish
+      if (pol.notes) carryNotes = pol.notes
+    }
   }
 }
 
@@ -917,7 +932,7 @@ if (polish.length && !conflicts.length && !impossibleCriteria.length) {
 // so `reviewStale` alone means the tree is unchanged since a green gate, and re-running the suite on an
 // unchanged tree was pure waste (this pass measured 19 minutes on average). Skipped when verification is
 // already red — there's nothing to protect, and the user is getting it back anyway.
-if (verifyPassed && polishApplied.length) {
+if (verifyPassed && (polishApplied.length || polishTouchedTree)) {
   phase('Polish')
   const finalVerify = await agent(
     `Confirm nothing regressed. Run the test suite ONCE and re-check only the success criteria that the changes ` +
@@ -927,7 +942,7 @@ if (verifyPassed && polishApplied.length) {
     `first full pass it is supposed to be a cheap follow-up to. If the changes below are low-risk cleanups, the ` +
     `suite alone is the answer.\n\n` +
     `Changes since the last full verification:\n` +
-    `${polishApplied.map((r) => `- ${r}`).join('\n')}\n\n` +
+    `${(polishApplied.length ? polishApplied : ['partial polish edits — the polish agent blocked midway']).map((r) => `- ${r}`).join('\n')}\n\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
     `Changed files: ${changedFiles.join(', ')}` + CONTEXT_DISCIPLINE,
     { label: 'verify:final', phase: 'Polish', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA }
@@ -935,7 +950,7 @@ if (verifyPassed && polishApplied.length) {
   if (finalVerify) {
     verifyPassed = !!finalVerify.passed
     verifyNeedsApproval = finalVerify.needsApprovalFor || verifyNeedsApproval
-    if (finalVerify.passed && finalVerify.suiteFingerprint) suiteGreen = finalVerify.suiteFingerprint
+    if (finalVerify.suiteFingerprint) suiteGreen = finalVerify.suiteFingerprint
   }
 }
 
@@ -968,8 +983,9 @@ return {
   iterations: iteration,
   changedFiles,
   verifyPassed,
-  suiteGreen,                 // worktree fingerprint the full suite passed on — a later step that wants a
-                              // suite run (pre-push checks) recomputes the fingerprint and skips if it matches
+  suiteGreen,                 // worktree fingerprint the full suite last PASSED on (says nothing about the
+                              // live criteria — that's verifyPassed). A later step that wants a suite run
+                              // (pre-push checks) recomputes the fingerprint and skips if it matches.
   verifyNeedsApproval,        // risky steps Verify declined to run — need human
   conflicts,                  // clash with requirements/plan — user decides
   impossibleCriteria,         // the target itself is wrong — only the user can fix the criterion
