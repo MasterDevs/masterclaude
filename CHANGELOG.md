@@ -4,6 +4,13 @@ Notable changes to `masterdevs`. Format follows [Keep a Changelog](https://keepa
 versioning is [semver](https://semver.org/), pre-1.0 — **minor versions may break interfaces** (schemas
 gain required fields, result fields change meaning). Pin a version if that matters to you.
 
+## [0.15.1](https://github.com/MasterDevs/masterclaude/compare/v0.15.0...v0.15.1) (2026-08-20)
+
+
+### Fixed
+
+* run the full test suite once per round, not dozens of times ([#2](https://github.com/MasterDevs/masterclaude/issues/2)) ([37c4794](https://github.com/MasterDevs/masterclaude/commit/37c4794e912066ed887da3c0365255b76f475e93))
+
 ## [0.15.0] — 2026-08-17
 
 First public release. Everything below landed during pre-release development and is summarized here
