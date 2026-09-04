@@ -407,7 +407,14 @@ const ITERATE_SCHEMA = {
 const playbookNote =
   `Playbook root: ${playbookDir}. Pattern catalogs: ${playbookDir}/patterns/<domain>/catalog.md (match "Reach for when", ` +
   `honor "Skip when"). Lessons: ${playbookDir}/lessons/<lens>.md. Stage new candidates ONLY to ` +
-  `${playbookDir}/patterns/<domain>/candidates.md or ${playbookDir}/lessons/<lens>.candidates.md — never a promoted lane.`
+  `${playbookDir}/patterns/<domain>/candidates.md or ${playbookDir}/lessons/<lens>.candidates.md — never a promoted lane. ` +
+  `Curated examples live in the gold lane. There are TWO lanes and the repo's wins on a clash: ` +
+  `<repo>/.masterdevs/gold/ (the team's, committed alongside their code — it is NOT under the Playbook ` +
+  `root, so check for it separately) and ${playbookDir}/gold/ (this machine's). In each lane that exists: ` +
+  `read its INDEX.md, which groups every entry under a "## <domain>" heading (\`ls\` the lane if it has no ` +
+  `index yet), then \`grep -il "<pattern or topic>" <lane>/*.md\` to search the entries themselves. Both are ` +
+  `plain files — do not reach for a CLI. READ an entry file on demand and cite its id, and NEVER write, ` +
+  `stage or reindex either lane — only /masterdevs:gold writes them.`
 
 const merge = (a, b) => [...new Set([...(a || []), ...(b || [])])]
 

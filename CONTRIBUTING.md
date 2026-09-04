@@ -38,18 +38,19 @@ Install your working copy as a local marketplace to test it:
 
 ## Tests
 
-Two suites, both free and instant. **Run both before opening a PR.**
+Three suites, all free and instant. **Run all three before opening a PR.**
 
 ```bash
 node scripts/loop-scenarios.mjs      # control flow; -v prints agent sequences
 node scripts/mutation-check.mjs      # proves the scenarios actually catch things
+node scripts/gold-checks.mjs         # the gold lane: scope precedence, validation, staleness, seed merge, scrub patterns
 ```
 
 `loop-scenarios.mjs` runs the **real** `feature-loop.js` against a stubbed agent layer, so every branch
 executes in milliseconds with no models and no repo. It catches the class of bug that is otherwise
 invisible until a two-hour run ends in the wrong state.
 
-`mutation-check.mjs` deliberately breaks the loop 41 ways and asserts the suite goes red. This exists
+`mutation-check.mjs` deliberately breaks the loop 42 ways and asserts the suite goes red. This exists
 because a green suite can be worthless: an earlier version passed 12/12 while missing the round cap —
 the single most important behavior it claimed to protect.
 

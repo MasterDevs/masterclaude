@@ -121,6 +121,16 @@ const MUTATIONS = [
     "'summary', 'fix', 'soWhat'],", "'summary', 'fix'],"],
   ['LOOSEN schema: escalations lose soWhat',
     "required: ['issue', 'why', 'soWhat'],", "required: ['issue', 'why'],"],
+  // Gold is human-write-only. If the prompt stops saying so, an agent staging an entry would bypass
+  // the only gate that lane has.
+  ['stop telling agents the gold lane is read-only',
+    '`stage or reindex either lane — only /masterdevs:gold writes them.`',
+    '``'],
+  // Two lanes in unrelated places, and only one of them is under the Playbook root. Drop the repo one
+  // and a team's committed examples become invisible to every agent, silently.
+  ['hide the team\'s repo lane from the agents',
+    '`<repo>/.masterdevs/gold/ (the team\'s, committed alongside their code — it is NOT under the Playbook ` +',
+    '`` +'],
 ]
 
 process.on('exit', () => fs.writeFileSync(SRC, orig))   // restore even if this crashes
