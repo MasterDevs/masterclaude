@@ -10,6 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, because the gold step below judges a curated example against the commit it
+          # was captured at. A shallow clone does not contain those commits, so every entry would read
+          # as not-checkable and the step would pass without checking anything.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -28,10 +33,15 @@ jobs:
       - name: Gold lane checks
         run: node scripts/gold-checks.mjs
 
-      # Entries ship to users. A malformed one, or one anchored at a symbol that has since moved,
-      # would teach every reader the wrong thing.
+      # Entries ship to users, so a malformed one would teach every reader the wrong thing. Structure
+      # is checked for every entry; the code an entry points at is checked only for entries captured in
+      # THIS repository, since that is the only history a runner can see. `--repo-root .` is what
+      # supplies that history — without it the script has no repository to judge against and every
+      # anchor is skipped, which reads as a pass.
       - name: Shipped gold entries validate
-        run: node plugins/masterdevs/scripts/gold.mjs --validate --gold-dir plugins/masterdevs/playbook-seeds/gold
+        run: |
+          node plugins/masterdevs/scripts/gold.mjs --validate \
+            --gold-dir plugins/masterdevs/playbook-seeds/gold --repo-root .
 
       # The bundled scripts ship to users, so a syntax error here is a broken install.
       - name: Scripts parse

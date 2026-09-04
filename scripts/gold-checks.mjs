@@ -342,6 +342,76 @@ check('escaping anchor path — refused rather than read', () => {
   ]
 })
 
+// ── 4f. anything that is not a readable file is "gone", not a crash ────────
+// `existsSync` is also true of a directory, and reading one throws EISDIR — which aborted the run and
+// left every later entry unvalidated behind a stack trace. A validator that dies partway through is
+// worse than one that reports nothing, because its exit code still looks like a verdict.
+check('directory as an anchor path — reported as gone, and the run continues', () => {
+  const repo = scratchRepo('eisdir')
+  fs.mkdirSync(path.join(repo, 'src/pkg'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'src/pkg/mod.py'), 'def kept():\n    return 1\n')
+  fs.writeFileSync(path.join(repo, 'src/later.py'), 'def later_symbol():\n    return 1\n')
+  const sha = commitAll(repo)
+
+  const d = lane('eisdir-gold')
+  write(d, 'a-directory', entry({ id: 'a-directory', anchors: [{ path: 'src/pkg', symbol: 'kept', sha }] }))
+  // Sorts after the broken one, so it is only reported if the run survived it.
+  write(d, 'z-later', entry({ id: 'z-later', anchors: [{ path: 'src/later.py', symbol: 'nope', sha }] }))
+  const r = run(`--validate --gold-dir ${JSON.stringify(d)} --repo-root ${JSON.stringify(repo)}`)
+
+  return [
+    [!/EISDIR|at Object\.|Error:/.test(r.out), `the run must not throw — got:\n${r.out}`],
+    [/a-directory.*FILE_GONE/.test(r.out), `a non-file must read as gone — got:\n${r.out}`],
+    [/z-later/.test(r.out), 'the entry after the broken one must still be validated'],
+  ]
+})
+
+// ── 4g. containment survives a symlink ─────────────────────────────────────
+// Lexical containment passes any path that merely starts with the repository root, so a symlink
+// committed inside the repository can point anywhere and the validator becomes a read oracle for the
+// rest of the disk. The check has to resolve both sides.
+check('symlinked anchor path — refused, not followed out of the repository', () => {
+  const repo = scratchRepo('symlink')
+  fs.writeFileSync(path.join(repo, 'src/a.py'), 'def thing():\n    return 1\n')
+  const secretDir = path.join(TMP, 'symlink-outside')
+  fs.mkdirSync(secretDir, { recursive: true })
+  fs.writeFileSync(path.join(secretDir, 'secret.txt'), 'thing\n')   // would match if ever read
+  fs.symlinkSync(secretDir, path.join(repo, 'src/escape'))
+  const sha = commitAll(repo)
+
+  const d = lane('symlink-gold')
+  write(d, 'through-a-link', entry({
+    id: 'through-a-link', anchors: [{ path: 'src/escape/secret.txt', symbol: 'thing', sha }],
+  }))
+  const r = run(`--validate --gold-dir ${JSON.stringify(d)} --repo-root ${JSON.stringify(repo)}`)
+  return [
+    [/OUTSIDE_REPO/.test(r.out), `the escape must be refused — got:\n${r.out}`],
+    [!/through-a-link — src\/escape\/secret\.txt#thing \[/.test(r.out) || !/ok\b/.test(r.out),
+      'and it must never be reported as a resolving anchor'],
+  ]
+})
+
+// ── 4h. a flag with no value is a typo, and its failure was silent ─────────
+// `--validate --gold-dir` with nothing after it fell back to the ambient scope chain and reported rot
+// on entries the caller never named — arriving at the exact false positive the reach gate exists to
+// prevent, by way of a typo.
+check('malformed arguments — refused rather than silently reinterpreted', () => {
+  const d = lane('args-gold')
+  const missingValue = run('--validate --gold-dir')
+  const swallowedFlag = run(`--gold-dir --validate`)
+  const noSuchDir = run(`--validate --gold-dir ${JSON.stringify(path.join(TMP, 'not-a-lane'))}`)
+  return [
+    [missingValue.code !== 0 && /needs a value/.test(missingValue.out),
+      `a flag with no value must be refused — got:\n${missingValue.out}`],
+    [swallowedFlag.code !== 0 && /needs a value/.test(swallowedFlag.out),
+      `a flag must not swallow the next flag as its value — got:\n${swallowedFlag.out}`],
+    [noSuchDir.code !== 0 && /not a directory/.test(noSuchDir.out),
+      `a missing lane must be a clean error, not a stack trace — got:\n${noSuchDir.out}`],
+    [!/at Object\.|ENOENT/.test(noSuchDir.out), 'and it must not surface a raw node error'],
+    [fs.existsSync(d), 'fixture lane exists'],
+  ]
+})
+
 // ── 5. empty lanes ─────────────────────────────────────────────────────────
 check('empty lane — validating nothing is success, including the shipped seeds', () => {
   const d = lane('empty')
@@ -386,6 +456,30 @@ check('seed merge — creates the lane if absent, adds what is new, edits nothin
     [fs.existsSync(path.join(pb2, 'gold/brand-new.md')), 'while a net-new seed id is still added'],
     [/left 1 existing entry untouched/.test(again.out),
       `the report must say what it declined to overwrite — got:\n${again.out}`],
+  ]
+})
+
+// ── 6b. the index is written from untrusted fields ─────────────────────────
+// An entry can arrive by pull request, and `--reindex` copies its frontmatter into INDEX.md — the one
+// file every agent loads. Keeping the BODY out of the index is not enough if a FIELD can carry markup,
+// a link, or a line break into it, or choose the name of the file a spilled section is written to.
+check('hostile frontmatter — cannot inject into the index or name a file', () => {
+  const d = lane('inject-gold')
+  const hostile = entry({ id: 'hostile', domain: '../../escaped' })
+    .replace(/^title: .*$/m, 'title: real [click](http://example.com) `code` | col | <b>tag</b>')
+  write(d, 'hostile', hostile)
+  const r = run(`--reindex --scope local --playbook-dir ${JSON.stringify(path.join(TMP, 'inject-pb'))} ` +
+    `--gold-dir ${JSON.stringify(d)}`)
+  const index = fs.readFileSync(path.join(d, 'INDEX.md'), 'utf8')
+  const line = index.split('\n').find((l) => l.includes('hostile')) || ''
+  const strays = fs.readdirSync(path.dirname(d)).filter((f) => /escaped/.test(f))
+
+  return [
+    [r.code === 0, `reindex must succeed (exit ${r.code})\n${r.out}`],
+    [!/\[click\]|<b>/.test(line), `markup must not survive into the index — got:\n${line}`],
+    [(line.match(/`/g) || []).length === 2, `only the id keeps its backticks — got:\n${line}`],
+    [!strays.length, `no file may be written outside the lane — found ${strays.join(', ')}`],
+    [/real/.test(line), 'and the readable part of the title is still shown'],
   ]
 })
 

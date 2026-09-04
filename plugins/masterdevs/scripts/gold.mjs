@@ -40,7 +40,18 @@ import { execSync, execFileSync } from 'node:child_process'
 
 const argv = process.argv.slice(2)
 const has = (f) => argv.includes(f)
-const val = (f) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : null)
+const val = (f) => {
+  if (!argv.includes(f)) return null
+  const v = argv[argv.indexOf(f) + 1]
+  // `--validate --gold-dir` with nothing after it used to fall back to the ambient scope chain and
+  // report rot on entries the caller never named — the exact false positive the reach gate exists to
+  // prevent, arrived at by a typo. `--gold-dir --validate` swallowed the next flag just as quietly.
+  if (v === undefined || v.startsWith('--')) {
+    console.error(`\n${f} needs a value.\n`)
+    process.exit(1)
+  }
+  return v
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(HERE, '../references/gold-schema.json'), 'utf8'))
@@ -72,7 +83,16 @@ const laneDir = (scope) =>
         : null
 
 const scopeChain = () => {
-  if (goldDirOverride) return [{ scope: 'override', dir: path.resolve(goldDirOverride) }]
+  if (goldDirOverride) {
+    // The override skips the existence filter the three real scopes get, so it has to answer for
+    // itself. Left unchecked, a missing directory surfaced as a raw ENOENT stack out of readdirSync.
+    const dir = path.resolve(goldDirOverride)
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      console.error(`\n--gold-dir is not a directory: ${dir}\n`)
+      process.exit(1)
+    }
+    return [{ scope: 'override', dir }]
+  }
   // The order is written here, not read from the schema: precedence is a decision about whose entry
   // wins, and it must not change because someone reordered an enum.
   return ['repo', 'local', 'seeds']
@@ -279,9 +299,11 @@ const symbolRe = (symbol) => {
 }
 
 // An anchor path is untrusted entry content, so it gets the same containment treatment `--reindex`
-// gives its writes: resolve it, then prove it is still inside the repository being judged.
-const withinRepo = (root, file) =>
-  file === path.resolve(root) || file.startsWith(path.resolve(root) + path.sep)
+// gives its writes: resolve it, then prove it is still inside the repository being judged. Both sides
+// are resolved through symlinks first — lexical containment alone lets a symlink committed inside the
+// repository point anywhere, which would make the validator a read oracle for the rest of the disk.
+const realOrNull = (p) => { try { return fs.realpathSync(p) } catch { return null } }
+const withinRepo = (root, file) => file === root || file.startsWith(root + path.sep)
 
 const checkAnchor = (anchor, root) => {
   // This guard also settles `root`: with no repository to resolve against there is nothing to judge,
@@ -289,17 +311,29 @@ const checkAnchor = (anchor, root) => {
   const reach = reachOf(root, anchor.sha)
   if (reach !== 'OK') return { verdict: 'unreachable', reason: reach, why: SKIP[reach] }
 
-  const file = path.resolve(root, anchor.path)
-  if (!withinRepo(root, file)) {
+  // Resolve the repository through any symlinks BEFORE joining the anchor's path, so the containment
+  // test compares two paths in the same namespace. Mixing them silently fails wherever a parent is a
+  // link — on macOS `/tmp` is one, so every temp-dir fixture would read as an escape.
+  const realRoot = realOrNull(root) || path.resolve(root)
+  const file = path.resolve(realRoot, anchor.path)
+  // A path that cannot be resolved is judged lexically: it is about to be reported as gone, and
+  // calling it an escape would replace the real reason with a misleading one.
+  if (!withinRepo(realRoot, realOrNull(file) || file)) {
     return { verdict: 'unreachable', reason: 'OUTSIDE_REPO', why: SKIP.OUTSIDE_REPO }
   }
   // Past the reach gate this IS the repository the excerpt came from, standing at or after the commit
   // it was captured at — so a missing file is not "cannot judge from here", it is the commonest way an
   // example actually goes stale: renamed or deleted. Calling that rot is only safe because the gate
   // above has already excluded every other checkout, which is the whole reason the gate exists.
-  if (!fs.existsSync(file)) return { verdict: 'rotted', reason: 'FILE_GONE', why: ROT.FILE_GONE }
-
-  const text = fs.readFileSync(file, 'utf8')
+  //
+  // Anything that is not a readable file counts as gone, which is what it means for an excerpt. The
+  // check used to be `existsSync`, which is also true of a DIRECTORY — and reading one throws EISDIR,
+  // aborting the run and leaving every later entry unvalidated behind a stack trace.
+  let text
+  try {
+    if (!fs.statSync(file).isFile()) return { verdict: 'rotted', reason: 'FILE_GONE', why: ROT.FILE_GONE }
+    text = fs.readFileSync(file, 'utf8')
+  } catch { return { verdict: 'rotted', reason: 'FILE_GONE', why: ROT.FILE_GONE } }
   const range = String(anchor.symbol).match(/^L(\d+)-L(\d+)$/)
   if (range) {
     return text.split('\n').length >= Number(range[2])
@@ -332,13 +366,30 @@ const applyFilters = (entries) => {
 const INDEX_HEADER = '# Gold Lane Index\n' +
   'Generated by `gold.mjs --reindex` from each entry\'s frontmatter — do not hand-edit.\n'
 
+// INDEX.md is the file every agent loads, and an entry can arrive by pull request, so every field
+// rendered into it is untrusted. The SECURITY note at the top of this file says `--reindex` writes only
+// frontmatter-derived fields, which keeps a crafted BODY out of the index — this is what keeps a
+// crafted FIELD from carrying a line break, a link or markup into the same file.
+const oneLine = (v, max = 160) => String(v ?? '')
+  .replace(/[\u0000-\u001f\u007f]+/g, ' ')      // no line breaks: one entry stays one line
+  .replace(/[`|[\]<>]/g, '')                     // no fenced spans, tables, links or tags
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, max)
+
+// A domain also becomes a FILENAME when its section spills, so it is reduced to a safe slug rather
+// than interpolated — otherwise an entry chooses where this script writes.
+const slug = (v) => oneLine(v, 60).toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
+  .replace(/^[-.]+|[-.]+$/g, '') || 'unsorted'
+
 const entryLine = (e) =>
-  `- \`${e.id}\` — ${e.title} — ${e.kind}, ${e.language} — patterns: ${asList(e.patterns).join(', ') || '—'}`
+  `- \`${oneLine(e.id, 80)}\` — ${oneLine(e.title)} — ${oneLine(e.kind, 20)}, ${oneLine(e.language, 30)}` +
+  ` — patterns: ${asList(e.patterns).map((p) => oneLine(p, 60)).join(', ') || '—'}`
 
 const renderIndex = (entries, target) => {
   const byDomain = new Map()
   for (const e of entries) {
-    const d = e.domain || 'unsorted'
+    const d = oneLine(e.domain, 60) || 'unsorted'
     if (!byDomain.has(d)) byDomain.set(d, [])
     byDomain.get(d).push(e)
   }
@@ -350,7 +401,7 @@ const renderIndex = (entries, target) => {
     const lines = byDomain.get(domain).map(entryLine).sort()
     const block = `\n## ${domain}\n\n${lines.join('\n')}\n`
     if (block.split('\n').length > SCHEMA.indexSplitLines) {
-      const spill = `INDEX.${domain}.md`
+      const spill = `INDEX.${slug(domain)}.md`
       files.push({ file: path.join(target, spill), text: `${INDEX_HEADER}\n## ${domain}\n\n${lines.join('\n')}\n` })
       main += `\n## ${domain}\n\n- ${lines.length} entries — see [\`${spill}\`](./${spill})\n`
     } else {
@@ -452,13 +503,16 @@ const writeIndex = (scope, target) => {
   // entries, or a user's file would describe entries they cannot see.
   const own = loadEntries([{ scope, dir: target }]).entries
   const files = renderIndex(own, target)
+  // Every path is proven inside the lane BEFORE anything is written. Checked inside the write loop,
+  // an abort on the second file left behind a fresh INDEX.md linking a spill file that was never
+  // written — and every rerun reproduced it.
   for (const f of files) {
     if (!path.resolve(f.file).startsWith(path.resolve(target) + path.sep)) {
       console.error(`\nRefusing to write outside the ${scope} lane: ${f.file}\n`)
       process.exit(1)
     }
-    fs.writeFileSync(f.file, f.text)
   }
+  for (const f of files) fs.writeFileSync(f.file, f.text)
   return { count: own.length, files }
 }
 
