@@ -2,7 +2,7 @@
 
 **Build a feature while you do something else.**
 
-A [Claude Code](https://claude.com/claude-code) plugin that takes a one-line brief, interviews you until the requirements are actually settled, shows you a plan to approve — and then goes dark and builds it. Implement, refactor, verify, review, iterate, polish. You come back to a decision, not a changelog.
+Claude Code and Codex plugins that take a one-line brief, interview you until the requirements are actually settled, show you a plan to approve — and then go dark and build it. Implement, refactor, verify, review, iterate, polish. You come back to a decision, not a changelog.
 
 ```
 /plugin marketplace add MasterDevs/masterclaude
@@ -10,6 +10,16 @@ A [Claude Code](https://claude.com/claude-code) plugin that takes a one-line bri
 
 /masterdevs:feature add rate limiting to the public API
 ```
+
+The Codex adapter can be tested directly from a checkout:
+
+```bash
+codex plugin marketplace add /absolute/path/to/masterclaude
+codex plugin add masterdevs-codex@masterclaude-codex
+codex -C /absolute/path/to/your/feature-repository
+```
+
+Then invoke `$masterdevs-feature add rate limiting to the public API`. See the [Codex guide](./docs/CODEX.md) for the approval/resume flow and isolated local-testing instructions.
 
 ---
 
@@ -78,13 +88,14 @@ Each phase runs in a **fresh context** seeded only by the previous phase's terse
 
 ## Requirements
 
-- Claude Code with plugin support
+- Claude Code with plugin support, Codex with plugin support, or both
 - Node.js 18+ (for the bundled scripts)
 - A git repository — the loop runs in your current worktree
 
 ## Documentation
 
 - **[Plugin reference](./plugins/masterdevs/README.md)** — the loop in depth, model routing, the playbook, extending the review panel
+- **[Codex guide](./docs/CODEX.md)** — install the local adapter, exercise each skill, resume a run, and inspect state
 - **[Evals](./evals/README.md)** — how the design is measured and how to reproduce it
 - **[Contributing](./CONTRIBUTING.md)** — development setup, tests, and the one gotcha that will bite you
 - **[Changelog](./CHANGELOG.md)** — release history

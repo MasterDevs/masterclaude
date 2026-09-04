@@ -3,7 +3,7 @@
 Thanks for looking. This is a small project with strong opinions about evidence — most of what's here
 exists because a real run went badly and the data said so.
 
-## Read this first: the two halves load differently
+## Read this first: adapters load differently
 
 **This will bite you.** The plugin has two halves, and they can silently disagree:
 
@@ -11,6 +11,7 @@ exists because a real run went badly and the data said so.
 |---|---|---|
 | `workflows/feature-loop.js` | read from disk at invocation | edits take effect on the **next run** |
 | `skills/*/SKILL.md`, `agents/*.md` | loaded into the Claude Code session at start | edits do nothing until a **new session** |
+| `plugins/masterdevs-codex/` | copied into the Codex plugin cache at install | edits require a **reinstall and new Codex instance** |
 
 It has already caused a real problem: three shipped versions of skill-side work sat dormant for a day
 while the workflow half ran current code. Every run looked healthy. The only tell was `interviewed:
@@ -36,13 +37,21 @@ Install your working copy as a local marketplace to test it:
 /plugin install masterdevs@masterclaude
 ```
 
+For Codex, use the shell commands below and then start a new instance. The complete walkthrough is in [`docs/CODEX.md`](./docs/CODEX.md).
+
+```bash
+codex plugin marketplace add /absolute/path/to/masterclaude
+codex plugin add masterdevs-codex@masterclaude-codex
+```
+
 ## Tests
 
-Two suites, both free and instant. **Run both before opening a PR.**
+Three suites are local and model-free. **Run all three before opening a PR.**
 
 ```bash
 node scripts/loop-scenarios.mjs      # control flow; -v prints agent sequences
 node scripts/mutation-check.mjs      # proves the scenarios actually catch things
+node scripts/codex-state-scenarios.mjs # Codex state and shared-asset parity
 ```
 
 `loop-scenarios.mjs` runs the **real** `feature-loop.js` against a stubbed agent layer, so every branch
@@ -52,6 +61,9 @@ invisible until a two-hour run ends in the wrong state.
 `mutation-check.mjs` deliberately breaks the loop 41 ways and asserts the suite goes red. This exists
 because a green suite can be worthless: an earlier version passed 12/12 while missing the round cap —
 the single most important behavior it claimed to protect.
+
+`codex-state-scenarios.mjs` exercises the provider-owned Codex run store in a temporary git repository
+and ensures protocols and Playbook assets copied into both distributable plugins remain byte-identical.
 
 ### If you add behavior, add both
 

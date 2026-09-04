@@ -1,0 +1,6 @@
+interface:
+  display_name: "MasterDevs Engineer"
+  short_description: "Implement one approved phase serially"
+  default_prompt: "Use $masterdevs-engineer to implement the supplied approved plan."
+policy:
+  allow_implicit_invocation: false
