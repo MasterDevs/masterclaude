@@ -19,14 +19,22 @@ const wantsJson = argv.includes('--json')
 // Both windows are overridable so the scenario suite can exercise a stale lock without waiting a
 // minute for it. Nothing in normal use sets them. A value that is not a positive number falls back
 // rather than becoming NaN — NaN makes every deadline comparison false and the wait loop spin forever.
+const MAX_LOCK_WINDOW_MS = 3600000
 const duration = (value, fallback) => {
   const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  // An upper bound as well as a lower one. The timeout is floored at twice the stale window, so an
+  // absurd staleness value would push the give-up time past any reachable clock and restore exactly
+  // the never-terminating wait the NaN check exists to prevent.
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_LOCK_WINDOW_MS ? parsed : fallback
 }
 const LOCK_STALE_MS = duration(process.env.MASTERDEVS_LOCK_STALE_MS, 15000)
-// Must exceed LOCK_STALE_MS. With the timeout shorter, a waiter gives up before it is ever entitled
-// to break the lock a killed process left behind, and the run can never record again.
-const LOCK_TIMEOUT_MS = duration(process.env.MASTERDEVS_LOCK_TIMEOUT_MS, 60000)
+// Held above LOCK_STALE_MS rather than merely documented as such. With a shorter timeout a waiter
+// gives up before it is ever entitled to break the lock a killed process left behind, and the run can
+// never record again — so an override that inverts the two is raised to a workable value.
+const LOCK_TIMEOUT_MS = Math.max(
+  duration(process.env.MASTERDEVS_LOCK_TIMEOUT_MS, 60000),
+  LOCK_STALE_MS * 2,
+)
 const LOCK_POLL_MS = 25
 // Returns null when the flag is absent, and the empty string when it is present with an empty value —
 // so callers can tell "leave this alone" apart from "clear this". A value that looks like another flag

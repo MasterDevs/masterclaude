@@ -253,7 +253,11 @@ try {
     const result = spawnSync(
       process.execPath,
       [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', 'resumed', '--json'],
-      { cwd: repo, env: { ...env, MASTERDEVS_LOCK_TIMEOUT_MS: '2000' }, encoding: 'utf8' },
+      {
+        cwd: repo,
+        env: { ...env, MASTERDEVS_LOCK_STALE_MS: '500', MASTERDEVS_LOCK_TIMEOUT_MS: '2000' },
+        encoding: 'utf8',
+      },
     )
     assert.equal(result.status, 0, result.stderr)
     assert.equal(JSON.parse(result.stdout).status, 'resumed')
@@ -311,9 +315,58 @@ try {
     invoke('paths', '--json')
   })
 
+  // A waiter that gives up before it may break a stale lock can never recover from a killed holder,
+  // so the timeout is floored above the stale window rather than only documented as being above it.
+  scenario('a timeout set below the stale window still recovers a lock', () => {
+    const lockPath = path.join(initialized.runDir, 'run.lock')
+    // Fresh on purpose: a dead holder whose lock has not yet aged into staleness is the only case
+    // where the give-up time matters. Backdate it and the stale break fires before any deadline.
+    fs.writeFileSync(lockPath, '999999\n')
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', 'floored', '--json'],
+      {
+        cwd: repo,
+        // Inverted on purpose: a 10ms give-up against a 2s staleness rule.
+        env: { ...env, MASTERDEVS_LOCK_STALE_MS: '2000', MASTERDEVS_LOCK_TIMEOUT_MS: '10' },
+        encoding: 'utf8',
+        timeout: 20000,
+      },
+    )
+    assert.equal(result.status, 0, result.stderr || 'record gave up before it could break the lock')
+    assert.equal(JSON.parse(result.stdout).status, 'floored')
+  })
+
+  // The timeout is floored at twice the stale window, so an unbounded staleness value would push the
+  // give-up time past any reachable clock — the same never-terminating wait, through another door.
+  scenario('an unbounded stale window falls back instead of spinning', () => {
+    const lockPath = path.join(initialized.runDir, 'run.lock')
+    fs.writeFileSync(lockPath, '999999\n')
+    const longAgo = new Date(Date.now() - 3600000)
+    fs.utimesSync(lockPath, longAgo, longAgo)
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', 'clamped', '--json'],
+      {
+        cwd: repo,
+        env: { ...env, MASTERDEVS_LOCK_STALE_MS: '1e308' },
+        encoding: 'utf8',
+        timeout: 15000,
+      },
+    )
+    assert.equal(result.status, 0, result.stderr || 'record never finished')
+    assert.equal(JSON.parse(result.stdout).status, 'clamped')
+  })
+
   // A non-numeric window used to become NaN, and every deadline comparison against NaN is false, so
   // the wait loop spun forever instead of timing out.
   scenario('a nonsense lock window falls back instead of spinning', () => {
+    // Needs a lock to actually wait on: NaN makes the staleness test and every deadline comparison
+    // false, so the loop neither breaks the lock nor ever gives up.
+    const lockPath = path.join(initialized.runDir, 'run.lock')
+    fs.writeFileSync(lockPath, '999999\n')
+    const longAgo = new Date(Date.now() - 3600000)
+    fs.utimesSync(lockPath, longAgo, longAgo)
     const result = spawnSync(
       process.execPath,
       [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', 'bounded', '--json'],

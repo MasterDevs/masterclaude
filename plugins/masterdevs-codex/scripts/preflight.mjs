@@ -72,8 +72,9 @@ const branch = sh('git rev-parse --abbrev-ref HEAD').out
 let def = sh('git symbolic-ref --quiet --short refs/remotes/origin/HEAD').out.replace(/^origin\//, '')
 if (!def) def = ['main', 'master'].find((b) => sh(`git rev-parse --verify --quiet refs/heads/${b}`).code === 0) || 'main'
 // def is interpolated into shell commands below and originates from a remote ref, which the
-// repository controls. Anything but a plain ref name is not worth running.
-if (!/^[A-Za-z0-9._\/-]+$/.test(def) || def.includes('..')) def = 'main'
+// repository controls. Anything but a plain ref name is not worth running — and a name that STARTS
+// with "-" is read by git as an option, not a ref, so the first character is constrained separately.
+if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(def) || def.includes('..')) def = 'main'
 
 if (branch === 'HEAD') {
   warn('branch', 'detached HEAD', 'check out a feature branch before starting')

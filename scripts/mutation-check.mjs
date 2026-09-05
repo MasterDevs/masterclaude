@@ -153,8 +153,14 @@ const STATE_MUTATIONS = [
     'if (loose) fs.chmodSync(dir, 0o700)', 'if (false) fs.chmodSync(dir, 0o700)'],
   ['the user\'s own state directory is chmod-ed behind their back',
     'if (chosenByUs) {', 'if (true) {'],
+  ['the timeout is no longer floored above the stale window (a killed holder strands the run)',
+    'duration(process.env.MASTERDEVS_LOCK_TIMEOUT_MS, 60000),\n  LOCK_STALE_MS * 2,',
+    'duration(process.env.MASTERDEVS_LOCK_TIMEOUT_MS, 60000),\n  0,'],
+  ['an unbounded lock window is accepted again (the give-up time becomes unreachable)',
+    'parsed > 0 && parsed <= MAX_LOCK_WINDOW_MS ? parsed : fallback', 'parsed > 0 ? parsed : fallback'],
   ['a nonsense lock window becomes NaN again (the wait loop spins forever)',
-    'return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback', 'return parsed'],
+    'return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_LOCK_WINDOW_MS ? parsed : fallback',
+    'return parsed'],
   ['running outside a repository loses the explanation',
     "throw new Error('not inside a git repository — run this from the repository you are working in')",
     "throw new Error('failed')"],
@@ -189,7 +195,7 @@ for (const target of TARGETS) {
     }
     fs.writeFileSync(target.src, orig.replace(from, to))
     let suitePassed
-    try { execSync(`node ${target.suite}`, { cwd: ROOT, stdio: 'pipe' }); suitePassed = true }
+    try { execSync(`node "${target.suite}"`, { cwd: ROOT, stdio: 'pipe' }); suitePassed = true }
     catch { suitePassed = false }
     console.log(suitePassed ? `  MISSED  ${name}` : `  caught  ${name}`)
     if (!suitePassed) caught++
