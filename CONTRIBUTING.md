@@ -58,9 +58,10 @@ node scripts/codex-state-scenarios.mjs # Codex state and shared-asset parity
 executes in milliseconds with no models and no repo. It catches the class of bug that is otherwise
 invisible until a two-hour run ends in the wrong state.
 
-`mutation-check.mjs` deliberately breaks the loop 41 ways and asserts the suite goes red. This exists
-because a green suite can be worthless: an earlier version passed 12/12 while missing the round cap —
-the single most important behavior it claimed to protect.
+`mutation-check.mjs` deliberately breaks the loop and the Codex run store, one way at a time, and
+asserts the matching suite goes red. This exists because a green suite can be worthless: an earlier
+version passed 12/12 while missing the round cap — the single most important behavior it claimed to
+protect.
 
 `codex-state-scenarios.mjs` exercises the provider-owned Codex run store in a temporary git repository
 and ensures protocols and Playbook assets copied into both distributable plugins remain byte-identical.

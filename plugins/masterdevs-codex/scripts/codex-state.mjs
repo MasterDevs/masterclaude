@@ -16,17 +16,25 @@ const SEEDS = path.join(PLUGIN_ROOT, 'playbook-seeds')
 const argv = process.argv.slice(2)
 const command = argv[0] || 'help'
 const wantsJson = argv.includes('--json')
-const LOCK_TIMEOUT_MS = 10000
-const LOCK_STALE_MS = 30000
+// Both windows are overridable so the scenario suite can exercise a stale lock without waiting a
+// minute for it. Nothing in normal use sets them.
+const LOCK_STALE_MS = Number(process.env.MASTERDEVS_LOCK_STALE_MS || 15000)
+// Must exceed LOCK_STALE_MS. With the timeout shorter, a waiter gives up before it is ever entitled
+// to break the lock a killed process left behind, and the run can never record again.
+const LOCK_TIMEOUT_MS = Number(process.env.MASTERDEVS_LOCK_TIMEOUT_MS || 60000)
 const LOCK_POLL_MS = 25
 // Returns null when the flag is absent, and the empty string when it is present with an empty value —
 // so callers can tell "leave this alone" apart from "clear this". A value that looks like another flag
 // is a missing value, not a value: `record --status --json` used to set the status to "--json".
 const flag = (name) => {
+  const inline = argv.find((token) => token.startsWith(`${name}=`))
+  if (inline !== undefined) return inline.slice(name.length + 1)
   const at = argv.indexOf(name)
   if (at === -1) return null
   const value = argv[at + 1]
-  if (value === undefined || /^--./.test(value)) throw new Error(`${name} requires a value`)
+  if (value === undefined || /^--./.test(value)) {
+    throw new Error(`${name} requires a value (write ${name}=<value> for one that starts with --)`)
+  }
   return value
 }
 
@@ -37,7 +45,13 @@ function git(cwd, ...args) {
 }
 
 function repoContext() {
-  const repoRoot = path.resolve(git(process.cwd(), 'rev-parse', '--show-toplevel'))
+  let top
+  try {
+    top = git(process.cwd(), 'rev-parse', '--show-toplevel')
+  } catch {
+    throw new Error('not inside a git repository — run this from the repository you are working in')
+  }
+  const repoRoot = path.resolve(top)
   // `--git-common-dir` answers relative to the CURRENT directory, not the repo root, so asking from
   // the repo root is what makes the answer resolvable against it. Asking from a subdirectory returns
   // "../.git", and resolving that against the root lands on the PARENT of the repo — which silently
@@ -50,8 +64,29 @@ function repoContext() {
   const commonKey = crypto.createHash('sha256').update(gitCommonDir).digest('hex').slice(0, 12)
   const worktreeKey = crypto.createHash('sha256').update(repoRoot).digest('hex').slice(0, 8)
   const runKey = `${worktreeSlug}-${commonKey}-${worktreeKey}`
-  const dataDir = override || path.join(os.tmpdir(), 'masterdevs', `${repositorySlug}-${commonKey}`)
+  const dataDir = override
+    || path.join(os.tmpdir(), `masterdevs-${currentUid() ?? 'shared'}`, `${repositorySlug}-${commonKey}`)
+  ensurePrivateDir(dataDir)
   return { repoRoot, gitCommonDir, dataDir, repositorySlug, worktreeSlug, runKey }
+}
+
+function currentUid() {
+  try { return os.userInfo().uid } catch { return null }
+}
+
+// The Playbook under this directory is read back to agents as instructions, so a directory someone
+// else owns or can write to is not one to keep run state in.
+function ensurePrivateDir(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  if (process.platform === 'win32') return dir
+  const stat = fs.lstatSync(dir)
+  if (stat.isSymbolicLink()) throw new Error(`${dir} is a symlink — refusing to keep run state there`)
+  const uid = currentUid()
+  if (uid !== null && stat.uid !== uid) {
+    throw new Error(`${dir} belongs to another user — refusing to keep run state there`)
+  }
+  if (stat.mode & 0o077) fs.chmodSync(dir, 0o700)
+  return dir
 }
 
 function atomicJson(file, value) {
@@ -71,10 +106,13 @@ function sleepSync(ms) {
 function withLock(lockPath, fn) {
   const deadline = Date.now() + LOCK_TIMEOUT_MS
   let handle = null
+  let held = null
   for (;;) {
     try {
       fs.mkdirSync(path.dirname(lockPath), { recursive: true })
-      handle = fs.openSync(lockPath, 'wx')
+      handle = fs.openSync(lockPath, 'wx', 0o600)
+      fs.writeSync(handle, `${process.pid}\n`)
+      held = fs.fstatSync(handle).ino
       break
     } catch (error) {
       if (error.code !== 'EEXIST') throw error
@@ -93,7 +131,8 @@ function withLock(lockPath, fn) {
     return fn()
   } finally {
     fs.closeSync(handle)
-    try { fs.unlinkSync(lockPath) } catch { /* already cleared */ }
+    // Only remove the file we actually created — see `held` above.
+    try { if (fs.statSync(lockPath).ino === held) fs.unlinkSync(lockPath) } catch { /* already gone */ }
   }
 }
 
@@ -105,8 +144,19 @@ function copyMissing(sourceDir, targetDir) {
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     const from = path.join(sourceDir, entry.name)
     const to = path.join(targetDir, entry.name)
-    if (entry.isDirectory()) copyMissing(from, to)
-    else if (!fs.existsSync(to)) fs.copyFileSync(from, to)
+    const existing = (() => {
+      try { return fs.statSync(to) } catch { return null }
+    })()
+    if (entry.isDirectory()) {
+      if (existing && !existing.isDirectory()) {
+        throw new Error(`${to} is a file where the Playbook needs a directory — move it aside`)
+      }
+      copyMissing(from, to)
+    } else if (existing && existing.isDirectory()) {
+      throw new Error(`${to} is a directory where the Playbook needs a file — move it aside`)
+    } else if (!existing) {
+      fs.copyFileSync(from, to)
+    }
   }
 }
 
@@ -217,10 +267,17 @@ function record() {
   // Absolute is not the same as ours. Without this, any run.json anywhere on the filesystem could be
   // rewritten by passing its path.
   const ctx = repoContext()
-  const runsRoot = path.join(ctx.dataDir, 'runs', ctx.runKey)
-  const runDir = path.resolve(requested)
+  const declaredRoot = path.join(ctx.dataDir, 'runs', ctx.runKey)
+  fs.mkdirSync(declaredRoot, { recursive: true })
+  const runsRoot = fs.realpathSync(declaredRoot)
+  let runDir
+  try {
+    runDir = fs.realpathSync(requested)
+  } catch {
+    throw new Error(`no run directory at ${requested}`)
+  }
   if (runDir !== runsRoot && !runDir.startsWith(runsRoot + path.sep)) {
-    throw new Error(`--run-dir must be inside ${runsRoot}`)
+    throw new Error(`--run-dir must be inside ${declaredRoot}`)
   }
 
   // Read, modify and write under one lock, so a phase recording in parallel cannot overwrite the

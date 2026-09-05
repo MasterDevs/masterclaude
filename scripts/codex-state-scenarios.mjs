@@ -223,6 +223,74 @@ try {
     )
   })
 
+  // path.resolve normalizes "..", it does not follow a symlink, so a prefix check on unresolved paths
+  // let a link planted inside the runs directory point anywhere on the filesystem.
+  scenario('record refuses a symlink pointing out of the runs directory', () => {
+    const runsDir = invoke('paths', '--json').runsDir
+    const outside = path.join(scratch, 'outside-run')
+    fs.mkdirSync(outside, { recursive: true })
+    const before = { phase: 'Plan', status: 'untouched', message: 'not ours', events: [] }
+    fs.writeFileSync(path.join(outside, 'run.json'), JSON.stringify(before))
+    const link = path.join(runsDir, 'escape')
+    fs.symlinkSync(outside, link)
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', link, '--status', 'hijacked'],
+      { cwd: repo, env, encoding: 'utf8' },
+    )
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /must be inside/)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(outside, 'run.json'), 'utf8')), before)
+    fs.unlinkSync(link)
+  })
+
+  scenario('a lock left behind by a killed process is broken, not waited on', () => {
+    const lockPath = path.join(initialized.runDir, 'run.lock')
+    fs.writeFileSync(lockPath, '999999\n')
+    const longAgo = new Date(Date.now() - 3600000)
+    fs.utimesSync(lockPath, longAgo, longAgo)
+    // A short timeout so a regression fails in seconds rather than sitting out the full minute.
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', 'resumed', '--json'],
+      { cwd: repo, env: { ...env, MASTERDEVS_LOCK_TIMEOUT_MS: '2000' }, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(JSON.parse(result.stdout).status, 'resumed')
+    assert.ok(!fs.existsSync(lockPath), 'the lock outlived the command that took it')
+  })
+
+  scenario('a value that starts with -- can still be passed as --flag=value', () => {
+    const updated = invoke('record', '--run-dir', initialized.runDir, '--message=--fast path taken', '--json')
+    assert.equal(updated.message, '--fast path taken')
+  })
+
+  scenario('running outside a git repository says so', () => {
+    const result = spawnSync(process.execPath, [SCRIPT, 'paths'], { cwd: scratch, env, encoding: 'utf8' })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /not inside a git repository/)
+  })
+
+  scenario('the state directory is kept private to its owner', () => {
+    fs.chmodSync(dataDir, 0o777)
+    invoke('paths', '--json')
+    assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700)
+  })
+
+  scenario('a Playbook path of the wrong kind names itself', () => {
+    const playbookDir = invoke('paths', '--json').playbookDir
+    const lane = path.join(playbookDir, 'patterns', 'core')
+    fs.rmSync(lane, { recursive: true, force: true })
+    fs.writeFileSync(lane, 'a file where a directory belongs\n')
+    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION'), 'an-older-release\n')
+    const result = spawnSync(process.execPath, [SCRIPT, 'paths'], { cwd: repo, env, encoding: 'utf8' })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /needs a directory/)
+    assert.match(result.stderr, /patterns/)
+    fs.rmSync(lane, { force: true })
+    invoke('paths', '--json')
+  })
+
   scenario('relative data overrides fail closed', () => {
     const result = spawnSync(process.execPath, [SCRIPT, 'paths'], {
       cwd: repo,
