@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -39,6 +39,20 @@ function scenario(name, check) {
   check()
   scenarios.push(name)
   console.log(`✓ ${name}`)
+}
+
+async function scenarioAsync(name, check) {
+  await check()
+  scenarios.push(name)
+  console.log(`✓ ${name}`)
+}
+
+function recordInBackground(...args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [SCRIPT, ...args], { cwd: repo, env, stdio: 'ignore' })
+    child.on('error', reject)
+    child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`exited ${code}`))))
+  })
 }
 
 function filesUnder(root) {
@@ -133,6 +147,82 @@ try {
     assert.equal(status.events.length, 2)
   })
 
+  // `git rev-parse --git-common-dir` answers relative to the current directory, so a subdirectory used
+  // to resolve to the PARENT of the repository — moving the Playbook and orphaning a resumable run.
+  scenario('run identity does not move with the working directory', () => {
+    const nested = path.join(repo, 'nested', 'deeper')
+    fs.mkdirSync(nested, { recursive: true })
+    const fromRoot = invoke('paths', '--json')
+    const fromNested = invokeAt(nested, 'paths', '--json')
+    assert.equal(fromNested.repositorySlug, path.basename(repo))
+    assert.equal(fromNested.gitCommonDir, fromRoot.gitCommonDir)
+    assert.equal(fromNested.runsDir, fromRoot.runsDir)
+    assert.equal(fromNested.playbookDir, fromRoot.playbookDir)
+  })
+
+  scenario('an omitted --message keeps the stored one, and an empty one clears it', () => {
+    const kept = invoke('record', '--run-dir', initialized.runDir, '--status', 'reviewing', '--json')
+    assert.equal(kept.status, 'reviewing')
+    assert.equal(kept.message, 'Running scoped checks')
+    const cleared = invoke('record', '--run-dir', initialized.runDir, '--message', '', '--json')
+    assert.equal(cleared.message, '')
+    assert.equal(cleared.status, 'reviewing')
+  })
+
+  scenario('a flag value that is really another flag is rejected', () => {
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', '--json'],
+      { cwd: repo, env, encoding: 'utf8' },
+    )
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /--status requires a value/)
+  })
+
+  scenario('record refuses a run directory outside this repository', () => {
+    const foreign = path.join(scratch, 'foreign-run')
+    fs.mkdirSync(foreign, { recursive: true })
+    const before = { phase: 'Plan', status: 'untouched', message: 'not ours', events: [] }
+    fs.writeFileSync(path.join(foreign, 'run.json'), JSON.stringify(before))
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', foreign, '--status', 'hijacked'],
+      { cwd: repo, env, encoding: 'utf8' },
+    )
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /must be inside/)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(foreign, 'run.json'), 'utf8')), before)
+  })
+
+  scenario('one unreadable run does not hide the others', () => {
+    const broken = path.join(invoke('paths', '--json').runsDir, '20200101T000000Z-dead')
+    fs.mkdirSync(broken, { recursive: true })
+    fs.writeFileSync(path.join(broken, 'run.json'), '{ not json at all')
+    const found = invoke('status', '--run-id', initialized.runId, '--json')
+    assert.equal(found.runId, initialized.runId)
+    assert.equal(invoke('latest', '--json').runId, initialized.runId)
+    fs.rmSync(broken, { recursive: true, force: true })
+  })
+
+  scenario('a newer seed release fills gaps without overwriting what a run has learned', () => {
+    const playbookDir = invoke('paths', '--json').playbookDir
+    const edited = path.join(playbookDir, 'patterns/core/catalog.md')
+    const learned = '# a run promoted this\n'
+    fs.writeFileSync(edited, learned)
+    const dropped = path.join(playbookDir, 'lessons/security.md')
+    fs.rmSync(dropped)
+    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION'), 'an-older-release\n')
+
+    invoke('paths', '--json')
+
+    assert.ok(fs.existsSync(dropped), 'a missing seed file was not restored')
+    assert.equal(fs.readFileSync(edited, 'utf8'), learned, 'a promoted entry was overwritten by a seed')
+    assert.equal(
+      fs.readFileSync(path.join(playbookDir, 'SEED_VERSION'), 'utf8').trim(),
+      fs.readFileSync(path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds/VERSION'), 'utf8').trim(),
+    )
+  })
+
   scenario('relative data overrides fail closed', () => {
     const result = spawnSync(process.execPath, [SCRIPT, 'paths'], {
       cwd: repo,
@@ -141,6 +231,21 @@ try {
     })
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /must be an absolute path/)
+  })
+
+  // Verify and Review run at the same time and both record. A rename keeps run.json from being torn
+  // in half; it does not keep the second writer from overwriting the first one's event.
+  await scenarioAsync('phases recording in parallel do not lose each other\'s events', async () => {
+    const statePath = path.join(initialized.runDir, 'run.json')
+    const before = JSON.parse(fs.readFileSync(statePath, 'utf8')).events.length
+    const phases = ['Verify', 'Review', 'Implement', 'Refactor', 'Iterate', 'Polish']
+    await Promise.all(phases.map((phase) => recordInBackground(
+      'record', '--run-dir', initialized.runDir, '--phase', phase, '--message', `${phase} recorded`,
+    )))
+    const after = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    assert.equal(after.events.length, before + phases.length, 'a concurrent record was lost')
+    const recorded = new Set(after.events.map((event) => event.phase))
+    for (const phase of phases) assert.ok(recorded.has(phase), `${phase} never reached run.json`)
   })
 
   console.log(`\n${scenarios.length}/${scenarios.length} Codex state scenarios passed`)

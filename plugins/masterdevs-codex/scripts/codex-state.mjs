@@ -16,20 +16,33 @@ const SEEDS = path.join(PLUGIN_ROOT, 'playbook-seeds')
 const argv = process.argv.slice(2)
 const command = argv[0] || 'help'
 const wantsJson = argv.includes('--json')
+const LOCK_TIMEOUT_MS = 10000
+const LOCK_STALE_MS = 30000
+const LOCK_POLL_MS = 25
+// Returns null when the flag is absent, and the empty string when it is present with an empty value —
+// so callers can tell "leave this alone" apart from "clear this". A value that looks like another flag
+// is a missing value, not a value: `record --status --json` used to set the status to "--json".
 const flag = (name) => {
   const at = argv.indexOf(name)
-  return at === -1 ? null : argv[at + 1]
+  if (at === -1) return null
+  const value = argv[at + 1]
+  if (value === undefined || /^--./.test(value)) throw new Error(`${name} requires a value`)
+  return value
 }
 
-function git(...args) {
+function git(cwd, ...args) {
   return execFileSync('git', args, {
-    cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
   }).trim()
 }
 
 function repoContext() {
-  const repoRoot = path.resolve(git('rev-parse', '--show-toplevel'))
-  const gitCommonDir = path.resolve(repoRoot, git('rev-parse', '--git-common-dir'))
+  const repoRoot = path.resolve(git(process.cwd(), 'rev-parse', '--show-toplevel'))
+  // `--git-common-dir` answers relative to the CURRENT directory, not the repo root, so asking from
+  // the repo root is what makes the answer resolvable against it. Asking from a subdirectory returns
+  // "../.git", and resolving that against the root lands on the PARENT of the repo — which silently
+  // moved both the Playbook and the run key depending on where the user happened to be standing.
+  const gitCommonDir = path.resolve(repoRoot, git(repoRoot, 'rev-parse', '--git-common-dir'))
   const override = process.env.MASTERDEVS_DATA_DIR
   if (override && !path.isAbsolute(override)) throw new Error('MASTERDEVS_DATA_DIR must be an absolute path')
   const repositorySlug = path.basename(path.dirname(gitCommonDir))
@@ -48,12 +61,65 @@ function atomicJson(file, value) {
   fs.renameSync(tmp, file)
 }
 
+// A rename keeps a reader from seeing half a file; it does not keep two writers from overwriting each
+// other. The loop runs Verify and Review at the same time and both record, so a read-modify-write of
+// run.json needs a real mutex or one phase's event disappears.
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+function withLock(lockPath, fn) {
+  const deadline = Date.now() + LOCK_TIMEOUT_MS
+  let handle = null
+  for (;;) {
+    try {
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true })
+      handle = fs.openSync(lockPath, 'wx')
+      break
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      // A process killed mid-write leaves its lock behind; break one that is clearly abandoned.
+      try {
+        if (Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS) {
+          fs.unlinkSync(lockPath)
+          continue
+        }
+      } catch { continue }
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for the lock at ${lockPath}`)
+      sleepSync(LOCK_POLL_MS)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    fs.closeSync(handle)
+    try { fs.unlinkSync(lockPath) } catch { /* already cleared */ }
+  }
+}
+
+// Adds seed files the Playbook does not have yet and never touches one it does. That repairs a copy
+// interrupted half-way AND delivers files added in a later seed release, without overwriting the
+// promoted entries a user has spent runs accumulating.
+function copyMissing(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true })
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const from = path.join(sourceDir, entry.name)
+    const to = path.join(targetDir, entry.name)
+    if (entry.isDirectory()) copyMissing(from, to)
+    else if (!fs.existsSync(to)) fs.copyFileSync(from, to)
+  }
+}
+
 function bootstrapPlaybook(playbookDir) {
-  if (!fs.existsSync(playbookDir)) {
-    fs.mkdirSync(path.dirname(playbookDir), { recursive: true })
-    fs.cpSync(SEEDS, playbookDir, { recursive: true })
-    const version = fs.readFileSync(path.join(SEEDS, 'VERSION'), 'utf8').trim()
-    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION'), `${version}\n`)
+  const seedVersion = fs.readFileSync(path.join(SEEDS, 'VERSION'), 'utf8').trim()
+  const stampPath = path.join(playbookDir, 'SEED_VERSION')
+  const installed = (() => {
+    try { return fs.readFileSync(stampPath, 'utf8').trim() } catch { return null }
+  })()
+  if (installed !== seedVersion) {
+    fs.mkdirSync(playbookDir, { recursive: true })
+    copyMissing(SEEDS, playbookDir)
+    fs.writeFileSync(stampPath, `${seedVersion}\n`)
   }
 
   const patternRoot = path.join(playbookDir, 'patterns')
@@ -76,13 +142,17 @@ function readRun(runDir) {
   return { statePath, state: JSON.parse(fs.readFileSync(statePath, 'utf8')) }
 }
 
+// One unreadable run.json must not hide every other run. A run interrupted mid-write, or a directory a
+// user edited by hand, is skipped rather than allowed to break `latest` and `status` outright.
 function listRuns(ctx) {
   const root = path.join(ctx.dataDir, 'runs', ctx.runKey)
   if (!fs.existsSync(root)) return []
-  return fs.readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(root, entry.name, 'run.json')))
-    .map((entry) => readRun(path.join(root, entry.name)).state)
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+  const runs = []
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    try { runs.push(readRun(path.join(root, entry.name)).state) } catch { continue }
+  }
+  return runs.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
 }
 
 function print(value, human) {
@@ -90,10 +160,17 @@ function print(value, human) {
   else console.log(human(value))
 }
 
+// Two phases starting at once must not both be half-way through copying the seeds when the other
+// starts reading them.
+function ensurePlaybook(ctx) {
+  const playbookDir = path.join(ctx.dataDir, 'playbook')
+  withLock(path.join(ctx.dataDir, 'playbook.lock'), () => bootstrapPlaybook(playbookDir))
+  return playbookDir
+}
+
 function init() {
   const ctx = repoContext()
-  const playbookDir = path.join(ctx.dataDir, 'playbook')
-  bootstrapPlaybook(playbookDir)
+  const playbookDir = ensurePlaybook(ctx)
   const now = new Date()
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
   const runId = `${stamp}-${crypto.randomBytes(2).toString('hex')}`
@@ -124,8 +201,7 @@ function init() {
 
 function paths() {
   const ctx = repoContext()
-  const playbookDir = path.join(ctx.dataDir, 'playbook')
-  bootstrapPlaybook(playbookDir)
+  const playbookDir = ensurePlaybook(ctx)
   const value = {
     ...ctx,
     playbookDir,
@@ -136,20 +212,36 @@ function paths() {
 }
 
 function record() {
-  const runDir = flag('--run-dir')
-  if (!runDir || !path.isAbsolute(runDir)) throw new Error('record requires an absolute --run-dir')
-  const { statePath, state } = readRun(runDir)
-  const now = new Date().toISOString()
-  const phase = flag('--phase') || state.phase
-  const status = flag('--status') || state.status
-  const message = flag('--message') || ''
-  state.phase = phase
-  state.status = status
-  state.message = message
-  state.updatedAt = now
-  state.events.push({ at: now, phase, status, message })
-  atomicJson(statePath, state)
-  print(state, (item) => `${item.status} · ${item.phase}${item.message ? ` · ${item.message}` : ''}`)
+  const requested = flag('--run-dir')
+  if (!requested || !path.isAbsolute(requested)) throw new Error('record requires an absolute --run-dir')
+  // Absolute is not the same as ours. Without this, any run.json anywhere on the filesystem could be
+  // rewritten by passing its path.
+  const ctx = repoContext()
+  const runsRoot = path.join(ctx.dataDir, 'runs', ctx.runKey)
+  const runDir = path.resolve(requested)
+  if (runDir !== runsRoot && !runDir.startsWith(runsRoot + path.sep)) {
+    throw new Error(`--run-dir must be inside ${runsRoot}`)
+  }
+
+  // Read, modify and write under one lock, so a phase recording in parallel cannot overwrite the
+  // event this call is appending.
+  const updated = withLock(path.join(runDir, 'run.lock'), () => {
+    const { statePath, state } = readRun(runDir)
+    const now = new Date().toISOString()
+    const phase = flag('--phase') ?? state.phase
+    const status = flag('--status') ?? state.status
+    // An omitted --message keeps the stored one, the same as --phase and --status. Pass an empty
+    // --message to clear it; omitting it used to wipe it.
+    const message = flag('--message') ?? state.message ?? ''
+    state.phase = phase
+    state.status = status
+    state.message = message
+    state.updatedAt = now
+    state.events.push({ at: now, phase, status, message })
+    atomicJson(statePath, state)
+    return state
+  })
+  print(updated, (item) => `${item.status} · ${item.phase}${item.message ? ` · ${item.message}` : ''}`)
 }
 
 function latest() {
@@ -181,6 +273,9 @@ function help() {
   node codex-state.mjs record --run-dir <absolute> [--phase <name>] [--status <status>] [--message <text>] [--json]
   node codex-state.mjs latest [--status <comma-separated>] [--json]
   node codex-state.mjs status [--run-id <id>] [--json]
+
+record leaves --phase, --status and --message unchanged when the flag is omitted; pass an empty
+--message to clear it. --run-dir must sit inside this repository's own runs directory.
 
 Set MASTERDEVS_DATA_DIR to an absolute writable directory to override the stable system-temp default.`)
 }
