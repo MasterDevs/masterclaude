@@ -66,6 +66,8 @@ MASTERDEVS_DATA_DIR=/absolute/path/to/masterdevs-state \
 
 The Playbook and run artifacts then live below that directory. Do not point `MASTERDEVS_DATA_DIR` at the target repository unless you intentionally want untracked state there.
 
+The directory is created private to you. An existing one is left exactly as you set it, and a warning is printed if it is reachable by anyone else — the Playbook kept there is read back to agents as instructions. Without the variable, state goes to a per-user directory under the system temp directory and is held at owner-only.
+
 ## Reload after changing this branch
 
 Codex installs a snapshot into its plugin cache. A running instance does not automatically pick up skill or manifest changes. Close the test instance, then refresh the local installation:

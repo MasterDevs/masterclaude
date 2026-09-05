@@ -271,10 +271,30 @@ try {
     assert.match(result.stderr, /not inside a git repository/)
   })
 
-  scenario('the state directory is kept private to its owner', () => {
-    fs.chmodSync(dataDir, 0o777)
-    invoke('paths', '--json')
-    assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700)
+  // The default path sits under a shared temp directory and is guessable, so it is ours to keep tight.
+  scenario('a state directory we chose is kept private to its owner', () => {
+    const bare = { ...process.env }
+    delete bare.MASTERDEVS_DATA_DIR
+    const result = spawnSync(process.execPath, [SCRIPT, 'paths', '--json'], { cwd: repo, env: bare, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    const chosen = JSON.parse(result.stdout).dataDir
+    assert.ok(chosen.startsWith(fs.realpathSync(os.tmpdir())) || chosen.startsWith(os.tmpdir()), chosen)
+    assert.match(path.basename(path.dirname(chosen)), /^masterdevs-/)
+    fs.chmodSync(chosen, 0o755)
+    spawnSync(process.execPath, [SCRIPT, 'paths', '--json'], { cwd: repo, env: bare, encoding: 'utf8' })
+    assert.equal(fs.statSync(chosen).mode & 0o777, 0o700, 'a directory we chose was left loose')
+    fs.rmSync(chosen, { recursive: true, force: true })
+  })
+
+  // MASTERDEVS_DATA_DIR is the user's own decision — docs/CODEX.md tells them to pick one — so it is
+  // reported, not quietly rewritten, and a directory another user owns is not refused outright.
+  scenario('a state directory the user chose is reported, not rewritten', () => {
+    fs.chmodSync(dataDir, 0o755)
+    const result = spawnSync(process.execPath, [SCRIPT, 'paths', '--json'], { cwd: repo, env, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.statSync(dataDir).mode & 0o777, 0o755, 'the user\'s own directory was chmod-ed')
+    assert.match(result.stderr, /reachable beyond its owner/)
+    fs.chmodSync(dataDir, 0o700)
   })
 
   scenario('a Playbook path of the wrong kind names itself', () => {
@@ -289,6 +309,23 @@ try {
     assert.match(result.stderr, /patterns/)
     fs.rmSync(lane, { force: true })
     invoke('paths', '--json')
+  })
+
+  // A non-numeric window used to become NaN, and every deadline comparison against NaN is false, so
+  // the wait loop spun forever instead of timing out.
+  scenario('a nonsense lock window falls back instead of spinning', () => {
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, 'record', '--run-dir', initialized.runDir, '--status', 'bounded', '--json'],
+      {
+        cwd: repo,
+        env: { ...env, MASTERDEVS_LOCK_STALE_MS: 'abc', MASTERDEVS_LOCK_TIMEOUT_MS: 'nonsense' },
+        encoding: 'utf8',
+        timeout: 20000,
+      },
+    )
+    assert.equal(result.status, 0, result.stderr || 'record did not finish')
+    assert.equal(JSON.parse(result.stdout).status, 'bounded')
   })
 
   scenario('relative data overrides fail closed', () => {

@@ -17,11 +17,16 @@ const argv = process.argv.slice(2)
 const command = argv[0] || 'help'
 const wantsJson = argv.includes('--json')
 // Both windows are overridable so the scenario suite can exercise a stale lock without waiting a
-// minute for it. Nothing in normal use sets them.
-const LOCK_STALE_MS = Number(process.env.MASTERDEVS_LOCK_STALE_MS || 15000)
+// minute for it. Nothing in normal use sets them. A value that is not a positive number falls back
+// rather than becoming NaN — NaN makes every deadline comparison false and the wait loop spin forever.
+const duration = (value, fallback) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+const LOCK_STALE_MS = duration(process.env.MASTERDEVS_LOCK_STALE_MS, 15000)
 // Must exceed LOCK_STALE_MS. With the timeout shorter, a waiter gives up before it is ever entitled
 // to break the lock a killed process left behind, and the run can never record again.
-const LOCK_TIMEOUT_MS = Number(process.env.MASTERDEVS_LOCK_TIMEOUT_MS || 60000)
+const LOCK_TIMEOUT_MS = duration(process.env.MASTERDEVS_LOCK_TIMEOUT_MS, 60000)
 const LOCK_POLL_MS = 25
 // Returns null when the flag is absent, and the empty string when it is present with an empty value —
 // so callers can tell "leave this alone" apart from "clear this". A value that looks like another flag
@@ -66,7 +71,7 @@ function repoContext() {
   const runKey = `${worktreeSlug}-${commonKey}-${worktreeKey}`
   const dataDir = override
     || path.join(os.tmpdir(), `masterdevs-${currentUid() ?? 'shared'}`, `${repositorySlug}-${commonKey}`)
-  ensurePrivateDir(dataDir)
+  ensureStateDir(dataDir, { chosenByUs: !override })
   return { repoRoot, gitCommonDir, dataDir, repositorySlug, worktreeSlug, runKey }
 }
 
@@ -76,16 +81,29 @@ function currentUid() {
 
 // The Playbook under this directory is read back to agents as instructions, so a directory someone
 // else owns or can write to is not one to keep run state in.
-function ensurePrivateDir(dir) {
+//
+// How hard to insist depends on who chose the path. Under the shared temp directory the path is ours
+// and guessable, so it is held to 0700 and to this user. MASTERDEVS_DATA_DIR is the user's own
+// decision — docs/CODEX.md recommends a durable directory they pick — so a loose mode is reported
+// rather than silently changed, and a directory owned by someone else is theirs to explain, not ours
+// to refuse. A bind-mounted volume owned by the host user, read by a root process, is ordinary.
+function ensureStateDir(dir, { chosenByUs }) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   if (process.platform === 'win32') return dir
   const stat = fs.lstatSync(dir)
   if (stat.isSymbolicLink()) throw new Error(`${dir} is a symlink — refusing to keep run state there`)
   const uid = currentUid()
-  if (uid !== null && stat.uid !== uid) {
-    throw new Error(`${dir} belongs to another user — refusing to keep run state there`)
+  const foreign = uid !== null && uid !== 0 && stat.uid !== uid
+  const loose = Boolean(stat.mode & 0o077)
+  if (chosenByUs) {
+    if (foreign) throw new Error(`${dir} belongs to another user — refusing to keep run state there`)
+    if (loose) fs.chmodSync(dir, 0o700)
+    return dir
   }
-  if (stat.mode & 0o077) fs.chmodSync(dir, 0o700)
+  if (foreign || loose) {
+    console.error(`codex-state: warning — ${dir} is reachable beyond its owner, and the Playbook`
+      + ' kept there is read to agents as instructions')
+  }
   return dir
 }
 

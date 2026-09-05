@@ -149,8 +149,12 @@ const STATE_MUTATIONS = [
     'if (installed !== seedVersion) {', 'if (!fs.existsSync(playbookDir)) {'],
   ['a Playbook path of the wrong kind fails without naming itself',
     'throw new Error(`${to} is a file where the Playbook needs a directory — move it aside`)', 'void 0'],
-  ['the state directory is left readable by everyone',
-    'if (stat.mode & 0o077) fs.chmodSync(dir, 0o700)', 'if (false) fs.chmodSync(dir, 0o700)'],
+  ['a state directory we chose is left readable by everyone',
+    'if (loose) fs.chmodSync(dir, 0o700)', 'if (false) fs.chmodSync(dir, 0o700)'],
+  ['the user\'s own state directory is chmod-ed behind their back',
+    'if (chosenByUs) {', 'if (true) {'],
+  ['a nonsense lock window becomes NaN again (the wait loop spins forever)',
+    'return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback', 'return parsed'],
   ['running outside a repository loses the explanation',
     "throw new Error('not inside a git repository — run this from the repository you are working in')",
     "throw new Error('failed')"],
@@ -165,6 +169,10 @@ const originals = new Map(TARGETS.map((t) => [t.src, fs.readFileSync(t.src, 'utf
 const restoreAll = () => { for (const [file, text] of originals) fs.writeFileSync(file, text) }
 
 process.on('exit', restoreAll)   // restore even if this crashes
+// 'exit' does not fire on a signal, and these mutations edit files that ship to users.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => { restoreAll(); process.exit(1) })
+}
 
 let caught = 0
 let stale = 0
