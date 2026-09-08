@@ -99,7 +99,9 @@ try {
         .flatMap((entry) => [path.relative(root, path.join(dir, entry.name)),
           ...walk(path.join(dir, entry.name))])
       return walk(root)
-        .filter((relative) => relative !== 'rosters' && !relative.startsWith(`rosters${path.sep}`))
+        // Only the rosters directory itself. Its *files* legitimately differ per adapter; a
+        // subdirectory under it does not, and excluding the subtree hid that.
+        .filter((relative) => relative !== 'rosters')
         .sort()
     }
     assert.deepEqual(dirsOf('masterdevs-codex'), dirsOf('masterdevs'),
@@ -156,9 +158,11 @@ try {
         // without pinning the role a shipped roster could put a workspace-writing agent into the
         // read-only review panel — the panel runs concurrently with the verifier, which reads the
         // tree. Each roster serves one role, and the filename says which.
-        const role = file.startsWith('reviewers.') ? 'masterdevs-reviewer' : 'masterdevs-architect'
-        assert.equal(entry.roleSkill, role,
-          `${file} names ${entry.roleSkill}; a ${role.replace('masterdevs-', '')} roster must name ${role}`)
+        const roles = { 'reviewers.': 'masterdevs-reviewer', 'architects.': 'masterdevs-architect' }
+        const kind = Object.keys(roles).find((prefix) => file.startsWith(prefix))
+        assert.ok(kind, `${file} is a roster kind with no known role — add it to this map`)
+        assert.equal(entry.roleSkill, roles[kind],
+          `${file} names ${entry.roleSkill}, but a ${kind.slice(0, -2)} roster must name ${roles[kind]}`)
         // The docs promise that an entry with no `triggers`, or `lens: "all"`, always runs. A
         // shipped default that asked for a trigger match could therefore never fire at all, and
         // the loop would report a clean review having run no reviewer.
@@ -185,8 +189,10 @@ try {
     }
   })
 
-  // Codex-only by design: the Claude adapter's roster contract is enforced by its own workflow, and
-  // its shipped reviewers.json is reached through a workflow argument rather than a skill mention.
+  // Codex-only: the Claude adapter builds its panel from a hardcoded default plus the user file, so
+  // it has no skill-level roster mention to check. Its shipped rosters/reviewers.json currently has
+  // no consumer at all — `rosterPath` reaches feature-loop.js:31 and is never read — which is the
+  // same defect this scenario catches here. Fixing that is a Claude-side change, tracked separately.
   scenario('Codex skills read exactly the roster files that ship', () => {
     const shipped = fs.readdirSync(path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds/rosters'))
     // Spelled out per skill. A total count is too slack to be worth anything: with a floor, deleting
@@ -258,6 +264,21 @@ try {
     const defaults = review.match(/shipped defaults in `playbook\/rosters\/([\w.-]+\.json)`/)
     assert.ok(defaults, 'the review skill no longer says where the shipped defaults come from')
     assert.match(defaults[1], /\.defaults\.json$/, `the panel loads defaults from ${defaults[1]}`)
+
+    // The shipped defaults carry no `triggers` key, and the scenario above pins them that way. That
+    // pin only means something while both consumers still say an entry without triggers runs — a
+    // doc saying the opposite would leave the panel empty and the loop reporting a clean review
+    // having run no reviewer at all.
+    for (const [skill, name] of [
+      ['masterdevs-review', 'SKILL.md'],
+      ['masterdevs-feature', 'references/feature-loop.md'],
+    ]) {
+      const text = read(skill, name)
+      assert.match(text, /an entry with no `triggers`, or with `lens: "all"`, always runs/i,
+        `${skill}/${name} no longer says that an entry without triggers always runs`)
+      assert.match(text, /absent, empty, or unreadable, run the shipped defaults alone/i,
+        `${skill}/${name} no longer says what to do when the user roster cannot be read`)
+    }
   })
 
   scenario('no Codex skill documents a roster field this runtime lacks', () => {

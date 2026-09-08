@@ -244,6 +244,23 @@ const LOOP_DOC_MUTATIONS = [
     'Any registered Codex reviewers whose triggers match run alongside it.'],
 ]
 
+// The shipped defaults deliberately carry no `triggers`, so a consumer doc that says an entry
+// without triggers is skipped empties the panel — and the loop then reports a clean review with no
+// reviewer having run.
+const REVIEW_TRIGGER_MUTATIONS = [
+  ['the review skill says an untriggered entry is skipped, emptying the panel',
+    'An entry with no `triggers`, or with `lens: "all"`, always runs;',
+    'An entry without matching `triggers` is skipped;'],
+]
+
+const LOOP_TRIGGER_MUTATIONS = [
+  ['the feature loop says an untriggered entry is skipped, emptying the panel',
+    'an entry with no `triggers`, or with `lens: "all"`, always runs',
+    'entries without matching `triggers` are skipped'],
+  ['the feature loop drops the unreadable-roster fallback',
+    ' If the user file is absent, empty, or unreadable, run the shipped defaults alone.', ''],
+]
+
 const SHARED_CATALOG_MUTATIONS = [
   ['a shared catalog drifts between adapters',
     '# Core Pattern Catalog', '# Core Pattern Catalog (codex)'],
@@ -262,8 +279,8 @@ const SEED_PARITY_MUTATIONS = [
   ['a seed lands in one adapter and is forgotten in the other',
     { add: 'plugins/masterdevs-codex/playbook-seeds/lessons/codex-only.md', contents: '# codex only\n' }],
   ['a roster ships with nothing reading it',
-    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/orphans.codex.defaults.json',
-      contents: '[{ "name": "orphan", "lens": "all", "roleSkill": "masterdevs-reviewer" }]\n' }],
+    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/architects.spare.codex.defaults.json',
+      contents: '[{ "lens": "all", "roleSkill": "masterdevs-architect", "catalogs": ["core"] }]\n' }],
   ['an empty seed directory ships as a phantom Playbook lane',
     { addDir: 'plugins/masterdevs-codex/playbook-seeds/patterns/phantom' }],
   ['the defaults ship again under the path an earlier build gave the user',
@@ -272,8 +289,10 @@ const SEED_PARITY_MUTATIONS = [
   ["a seed occupies the path reserved for the user's own roster",
     { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/reviewers.codex.user.json',
       contents: '[{ "name": "reviewer", "lens": "all", "roleSkill": "masterdevs-reviewer" }]\n' }],
-  ['a seed lands under the Claude adapter and not this one',
+  ['the roster exclusion widens far enough to swallow a real seed',
     { add: 'plugins/masterdevs/playbook-seeds/rosters/extra.json', contents: '[]\n' }],
+  ['a seed lands under the Claude adapter and not this one',
+    { add: 'plugins/masterdevs/playbook-seeds/lessons/claude-only.md', contents: '# claude only\n' }],
 ]
 
 // Each target pairs a source file with the suite that is supposed to defend it.
@@ -283,14 +302,25 @@ const TARGETS = [
   { name: 'codex-reviewer-roster', src: REVIEWER_ROSTER, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEWER_ROSTER_MUTATIONS },
   { name: 'codex-architect-roster', src: ARCHITECT_ROSTER, suite: 'scripts/codex-state-scenarios.mjs', mutations: ARCHITECT_ROSTER_MUTATIONS },
   { name: 'codex-review-skill', src: REVIEW_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEW_SKILL_MUTATIONS },
+  { name: 'codex-review-triggers', src: REVIEW_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEW_TRIGGER_MUTATIONS },
+  { name: 'codex-loop-triggers', src: LOOP_DOC, suite: 'scripts/codex-state-scenarios.mjs', mutations: LOOP_TRIGGER_MUTATIONS },
   { name: 'codex-plan-skill', src: PLAN_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: PLAN_SKILL_MUTATIONS },
   { name: 'codex-roster-skill', src: ROSTER_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: ROSTER_SKILL_MUTATIONS },
   { name: 'codex-loop-doc', src: LOOP_DOC, suite: 'scripts/codex-state-scenarios.mjs', mutations: LOOP_DOC_MUTATIONS },
   { name: 'codex-shared-catalog', src: SHARED_CATALOG, suite: 'scripts/codex-state-scenarios.mjs', mutations: SHARED_CATALOG_MUTATIONS },
   { name: 'codex-reviewer-agent', src: REVIEWER_AGENT, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEWER_AGENT_MUTATIONS },
-  { name: 'codex-seed-parity', src: SHARED_CATALOG, suite: 'scripts/codex-state-scenarios.mjs', mutations: SEED_PARITY_MUTATIONS },
+  { name: 'codex-seed-parity', src: null, suite: 'scripts/codex-state-scenarios.mjs', mutations: SEED_PARITY_MUTATIONS },
 ]
-const originals = new Map(TARGETS.map((t) => [t.src, fs.readFileSync(t.src, 'utf8')]))
+// A target with no src only creates and removes files; it never edits one.
+for (const target of TARGETS) {
+  if (target.src) continue
+  for (const [name, from] of target.mutations) {
+    if (!from || typeof from !== 'object') {
+      throw new Error(`target "${target.name}" has no src, so mutation "${name}" must add a file or directory`)
+    }
+  }
+}
+const originals = new Map(TARGETS.filter((t) => t.src).map((t) => [t.src, fs.readFileSync(t.src, 'utf8')]))
 // Files a mutation created. Some invariants are about a file that must NOT exist, which find/replace
 // inside one file cannot express.
 const added = new Set()
@@ -391,18 +421,23 @@ for (const target of TARGETS) {
     console.log(suitePassed ? `  MISSED  ${name}` : `  caught  ${name}`)
     if (!suitePassed) caught++
     restoreAll()
+    // A failed restore poisons every later mutation, so stop rather than print more verdicts.
+    if (process.exitCode) {
+      console.error('stopping: the tree could not be restored, so no further result would mean anything')
+      process.exit(1)
+    }
   }
 }
-restoreAll()
 
 restoreAll()
 requireGreen('after the run restored it')
 
 console.log(`\n${caught}/${total} mutations caught`)
-if (stale) {
-  console.log(staleAdds === stale
-    ? `${stale} mutation(s) STALE — a file that must not exist is already there; remove it`
-    : `${stale} mutation(s) STALE — the code moved; update the find/replace pair`)
+if (staleAdds) {
+  console.log(`${staleAdds} mutation(s) STALE — a file that must not exist is already there; remove it`)
+}
+if (stale > staleAdds) {
+  console.log(`${stale - staleAdds} mutation(s) STALE — the code moved; update the find/replace pair`)
 }
 if (caught !== total || stale) {
   console.log('\nA MISSED mutation means the scenario covering it asserts a side effect, not the mechanism.')

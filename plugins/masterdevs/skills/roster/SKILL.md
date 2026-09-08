@@ -17,7 +17,7 @@ Collect from the user (ask only for what's missing):
 - `name` — unique key. Pick one no shipped default uses; a repeat adds a second reviewer rather than replacing the first.
 - `lens` — the review dimension (`security`, `performance`, `frontend`, `accessibility`, …). Drives the Lessons lane and matching against subtask lenses.
 - `agentType` — the agent to run, e.g. `some-plugin:accessibility-reviewer`, or a local agent name. Confirm it's installed. (The masterdevs default is a single combined `masterdevs:reviewer` covering security/performance/design/correctness; add your own here to run alongside it.)
-- `triggers` — any of: `{"always": true}`, `{"lenses": [...]}`, `{"globs": [...]}`, `{"sensitiveTier": true}`. The reviewer fires if **any** trigger matches (subject to tier depth: small = correctness only; sensitive = triggered + security always).
+- `triggers` — any of: `{"always": true}`, `{"lenses": [...]}`, `{"globs": [...]}`, `{"sensitiveTier": true}`. Recorded for the roster but **not yet honored**: the workflow currently runs every entry on every round, so treat these as intent rather than as filtering.
 - `model` — `sonnet | opus | fable` (fail upward for sensitive lenses).
 - `lessonsLane` — which `lessons/<lane>.md` its recurring findings stage into (defaults to `lens`). Create the lane's promoted + `.candidates.md` files if new.
 - optional `fallbackAgentType` — used if `agentType` can't resolve (e.g. an uninstalled external plugin).
