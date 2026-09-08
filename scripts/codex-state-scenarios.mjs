@@ -275,9 +275,14 @@ try {
     ]) {
       const text = read(skill, name)
       assert.match(text, /an entry with no `triggers`, or with `lens: "all"`, always runs/i,
-        `${skill}/${name} no longer says that an entry without triggers always runs`)
+        `${skill}/${name} must contain, verbatim: "an entry with no \`triggers\`, or with`
+          + ' `lens: "all"`, always runs" — reword it and this check together')
       assert.match(text, /absent, empty, or unreadable, run the shipped defaults alone/i,
-        `${skill}/${name} no longer says what to do when the user roster cannot be read`)
+        `${skill}/${name} must contain, verbatim: "absent, empty, or unreadable, run the shipped`
+          + ' defaults alone" — reword it and this check together')
+      // Presence is not consistency: a doc can keep the rule and contradict it a line later.
+      assert.doesNotMatch(text, /without matching `triggers`[^.]*(is|are) skipped/i,
+        `${skill}/${name} also says untriggered entries are skipped, which empties the panel`)
     }
   })
 

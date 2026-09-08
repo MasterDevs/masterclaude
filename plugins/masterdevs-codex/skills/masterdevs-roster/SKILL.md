@@ -20,9 +20,9 @@ Each entry contains:
 ```
 
 `always: true` fires on every review regardless of the other triggers; `lenses` and `globs` match the
-change; `sensitiveTier` fires on security-sensitive scope. An entry with `always: false` and every list
-empty matches nothing and never runs — set `always: true`, or use `lens: "all"`, if you want it on
-every review.
+change; `sensitiveTier` fires on security-sensitive scope. Omit `triggers` altogether and the entry always runs. An entry that has the key with `always: false`
+and every list empty matches nothing and never runs — set `always: true`, or use `lens: "all"`, if you
+want it on every review.
 
 Codex sets the model and reasoning effort for the whole session, not per agent, so an entry carries no
 model or effort field. `roleSkill` is the installed skill name without the `$` — the panel invokes it as

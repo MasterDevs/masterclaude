@@ -160,7 +160,7 @@ The Playbook is **one store shared by every repo you run against** (22 worktrees
 
 ## Extending the Review Panel
 
-`/masterdevs:roster` registers a reviewer with a lens, triggers (`always` / `lenses` / `globs` / `sensitiveTier`), a model, and a lessons lane. Its findings flow back into the lessons engineers preload, so the team gets better at avoiding what your reviewers catch.
+`/masterdevs:roster` registers a reviewer with a lens, a model, and a lessons lane (plus triggers, recorded for later — every registered reviewer currently runs on every review round). Its findings flow back into the lessons engineers preload, so the team gets better at avoiding what your reviewers catch.
 
 ## Notes
 - Workflow scripts (`workflows/*.js`) ship as plain files and are invoked by path from the `feature` skill.

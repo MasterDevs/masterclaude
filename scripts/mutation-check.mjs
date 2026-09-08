@@ -253,6 +253,12 @@ const REVIEW_TRIGGER_MUTATIONS = [
     'An entry without matching `triggers` is skipped;'],
 ]
 
+const REVIEW_FALLBACK_MUTATIONS = [
+  ['the review skill drops the unreadable-roster fallback',
+    ' An entry with no `triggers`, or with `lens: "all"`, always runs; if the user file is absent, empty, or unreadable, run the shipped defaults alone.',
+    ' An entry with no `triggers`, or with `lens: "all"`, always runs.'],
+]
+
 const LOOP_TRIGGER_MUTATIONS = [
   ['the feature loop says an untriggered entry is skipped, emptying the panel',
     'an entry with no `triggers`, or with `lens: "all"`, always runs',
@@ -293,6 +299,11 @@ const SEED_PARITY_MUTATIONS = [
     { add: 'plugins/masterdevs/playbook-seeds/rosters/extra.json', contents: '[]\n' }],
   ['a seed lands under the Claude adapter and not this one',
     { add: 'plugins/masterdevs/playbook-seeds/lessons/claude-only.md', contents: '# claude only\n' }],
+  ['an empty directory under rosters/ ships unnoticed',
+    { addDir: 'plugins/masterdevs-codex/playbook-seeds/rosters/sub' }],
+  ['a roster of an unrecognized kind inherits a role pin by default',
+    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/panel.codex.defaults.json',
+      contents: '[{ "name": "panel", "lens": "all", "roleSkill": "masterdevs-reviewer" }]\n' }],
 ]
 
 // Each target pairs a source file with the suite that is supposed to defend it.
@@ -303,6 +314,7 @@ const TARGETS = [
   { name: 'codex-architect-roster', src: ARCHITECT_ROSTER, suite: 'scripts/codex-state-scenarios.mjs', mutations: ARCHITECT_ROSTER_MUTATIONS },
   { name: 'codex-review-skill', src: REVIEW_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEW_SKILL_MUTATIONS },
   { name: 'codex-review-triggers', src: REVIEW_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEW_TRIGGER_MUTATIONS },
+  { name: 'codex-review-fallback', src: REVIEW_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEW_FALLBACK_MUTATIONS },
   { name: 'codex-loop-triggers', src: LOOP_DOC, suite: 'scripts/codex-state-scenarios.mjs', mutations: LOOP_TRIGGER_MUTATIONS },
   { name: 'codex-plan-skill', src: PLAN_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: PLAN_SKILL_MUTATIONS },
   { name: 'codex-roster-skill', src: ROSTER_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: ROSTER_SKILL_MUTATIONS },
@@ -330,18 +342,24 @@ const added = new Set()
 const addedDirs = new Set()
 const restoreAll = () => {
   for (const [file, text] of originals) fs.writeFileSync(file, text)
-  for (const file of added) { try { fs.unlinkSync(file) } catch {} }
+  for (const file of added) {
+    try { fs.unlinkSync(file) }
+    catch (error) {
+      if (error.code === 'ENOENT') continue
+      console.error(`could not remove ${file}: ${error.message} — remove it before running again`)
+      process.exitCode = 1
+    }
+  }
   for (const dir of [...addedDirs].sort((a, b) => b.length - a.length)) {
     // Never silently: a directory left under playbook-seeds is invisible to git and poisons the
     // next run's parity check, which is what made a red suite score 100% in the first place.
-    try { fs.rmdirSync(dir) }
+    try { fs.rmdirSync(dir); addedDirs.delete(dir) }
     catch (error) {
       console.error(`could not remove ${dir}: ${error.message} — remove it before running again`)
       process.exitCode = 1
     }
   }
   added.clear()
-  addedDirs.clear()
 }
 
 process.on('exit', restoreAll)   // restore even if this crashes
