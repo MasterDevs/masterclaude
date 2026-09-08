@@ -96,9 +96,9 @@ same example under a new id is a duplicate the resolver will keep forever.
 
 | From → to | What to do |
 |---|---|
-| local → team | Copy to `$REPO_ROOT/.masterdevs/gold/<id>.md`, set `scope: repo` and `source: repo`, then run the **same two commands** the write step below ends with — `--reindex --scope repo --playbook-dir "$PLAYBOOK_DIR"` then `--validate --gold-dir "$REPO_ROOT/.masterdevs/gold"`. Both flags are required here for the same reason they are required there. Then tell the user to commit it. |
+| local → team | Copy to `$REPO_ROOT/.masterdevs/gold/<id>.md`, set `scope: repo` and `source: repo`, then `--reindex --scope repo --repo-root "$REPO_ROOT"` and `--validate --gold-dir "$REPO_ROOT/.masterdevs/gold" --repo-root "$REPO_ROOT"`. Both flags matter for the reasons the write step below gives. Then tell the user to commit it. |
 | local or team → public | Leave the entry where it is and submit a scrubbed **copy**, exactly as the public answer below does. |
-| team → local | Copy to `$PLAYBOOK_DIR/gold/<id>.md`, set `scope: local` and `source: local`, then reindex and validate with `--scope local`, same flags. Warn that internal names captured for team scope are now on a lane shared with every repository this machine visits. |
+| team → local | Copy to `$PLAYBOOK_DIR/gold/<id>.md`, set `scope: local` and `source: local`, then `--reindex --scope local --playbook-dir "$PLAYBOOK_DIR"` and `--validate --gold-dir "$PLAYBOOK_DIR/gold" --repo-root "$REPO_ROOT"`. Spelled out rather than "same flags" — the lane changed, so both paths change with it. Warn that internal names captured for team scope are now on a lane shared with every repository this machine visits. |
 
 This is why capture and contribution are one command rather than two: the second command existed only
 to answer a question this one already asks.
@@ -172,23 +172,31 @@ Then finish deterministically, in this order:
 
 1. Write the single entry file at the destination question's target — for **public**, that is this
    machine's local lane.
-2. Reindex **the lane you just wrote**, and pass `--playbook-dir` every time:
+2. Reindex **the lane you just wrote**, naming that lane's own root — a different flag per lane:
 
    ```
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --reindex --scope <local|repo> --playbook-dir "$PLAYBOOK_DIR"
+   # local lane
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --reindex --scope local --playbook-dir "$PLAYBOOK_DIR"
+   # repo lane
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --reindex --scope repo --repo-root "$REPO_ROOT"
    ```
 
-3. Validate **the same lane**, by pointing at it directly:
+3. Validate **the same lane**, and pass `--repo-root` as well:
 
    ```
-   node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --validate --gold-dir "<the lane you wrote>"
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --validate --gold-dir "<the lane you wrote>" --repo-root "$REPO_ROOT"
    ```
 
-`--playbook-dir` is not optional here. Without it the script falls back to the default data directory,
-so on any machine whose Playbook lives somewhere else the reindex writes one lane while the validation
-reads another — and capture reports success over an entry nobody checked. Naming the lane in step 3
-closes the same hole from the other side: it validates what you wrote, not whatever the scope chain
-happens to resolve to.
+**Each flag pins a different thing, and the wrong one is silently inert.** `--playbook-dir` locates the
+local lane and has no bearing on the repo lane; `--repo-root` locates the repo lane and is ignored for
+the local one. Pass neither and the script falls back to the default data directory, so on any machine
+whose Playbook lives elsewhere the reindex writes one lane while the validation reads another.
+
+`--repo-root` on step 3 is what makes the validation mean anything. Naming a lane with `--gold-dir`
+deliberately stops the script guessing which repository to judge the anchors against — so without
+`--repo-root` every anchor is reported as belonging to some other repository, skipped, and the command
+exits `0`. A deleted anchor file passes. That is the same "success over an entry nobody checked" the
+lane flag exists to prevent, reached from the opposite side.
 
 If validation reports anything, **fix the entry and re-run before reporting success.** The validator is
 authoritative — that is the mechanism that stops this prose template drifting from the schema, and it is

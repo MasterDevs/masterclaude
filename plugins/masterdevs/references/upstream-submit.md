@@ -40,7 +40,7 @@ Where the subject lives, and what "a copy" means for each:
 | Subject | Source | Staged as |
 |---|---|---|
 | gold entry | `$PLAYBOOK_DIR/gold/<id>.md` — a whole file | copy the file |
-| pattern | one **row** in `$PLAYBOOK_DIR/patterns/<domain>/catalog.md` | write that row into a new file, under the same `\| Name \| Intent \| Reach for when \| Skip when \|` header |
+| pattern | one **row** in `$PLAYBOOK_DIR/patterns/<domain>/catalog.md` | write that row into a new file, under a copy of that catalog's own table header — read it from the file rather than typing one, so a renamed column cannot desync |
 | lesson | one **entry** in `$PLAYBOOK_DIR/lessons/<lens>.md` | write that entry into a new file |
 
 A pattern and a lesson are rows, not files, so there is nothing to `cp` — extract the one row and stage
@@ -98,7 +98,10 @@ Then, on the copies only:
 - Rewrite each match to a generic placeholder that keeps the sentence readable
   (`OrderRepository`, `src/app/module.py`, `<internal host>`).
 - For a gold entry, rewrite each anchor's `path` to a generic form — the shape of the tree, not the
-  user's tree — and set `source: contributed`.
+  user's tree — and set **both** `source: contributed` **and** `scope: seeds`. The staged copy is bound
+  for the shipped lane; the copy the user keeps stays `local`/`local`. Setting both here is what stops
+  an entry arriving in `playbook-seeds/gold/` still claiming to live on someone's laptop — and
+  `--validate` cannot catch that, because `local` is a valid scope everywhere else.
 
 ## 4. The gate — this is what makes it verifiable
 
@@ -165,18 +168,44 @@ TMP="$(mktemp -d)"
 git clone --depth 1 https://github.com/<upstream> "$TMP/masterclaude"
 cd "$TMP/masterclaude"
 git switch -c <type>/<slug>
-cp "$WORK/submit/<name>.md" <its place in the clone>    # the gated copies, nothing else
-git add -A && git commit -m "<conventional commit>"
-git push -u origin <type>/<slug>
 ```
 
-**Confirm the resolved upstream target back to the user before running that push.** State the
-`owner/repo` you are about to push to and take a yes. `--upstream` defaults to
-`MasterDevs/masterclaude`, so a run the user believed was a rehearsal against their own fork reaches
-the production repository unless this confirmation happens here — at the push, not only where the
-default was described.
+Then place the staged content **by kind**. Only files listed in `$WORK/submit.txt` may be a source —
+anything else has not been through the gate.
 
-Only files listed in `$WORK/submit.txt` may be copied in. Anything else has not been through the gate.
+| Kind | Destination in the clone | How |
+|---|---|---|
+| gold entry | `plugins/masterdevs/playbook-seeds/gold/<id>.md` | `cp` — that file does not exist there yet |
+| pattern row | `plugins/masterdevs/playbook-seeds/patterns/<domain>/catalog.md` | **append** the row under `## Learned (promoted from candidates)`, creating that section with the destination file's own table header if it is absent |
+| lesson entry | `plugins/masterdevs/playbook-seeds/lessons/<lens>.md` | **append** the entry at the end |
+
+**`cp` a row-shaped subject and you delete a shipped catalog.** A pattern is one row in a file that
+already holds dozens, so copying the staged fragment *over* that file replaces every other row with the
+one row — and `git add -A` then commits the deletion. A lesson file loses its header and its seed marker
+the same way. Append; never overwrite a destination that already exists.
+
+Then prove what you placed, before committing:
+
+```
+git status --short             # a gold entry: one ADDED file. a row: one MODIFIED file, nothing else
+git diff                       # must show added lines only — no deletions, no rewritten header
+git add -A && git commit -m "<conventional commit>"
+```
+
+A deletion in that diff means the staged fragment overwrote its destination. Stop and place it again.
+The diff the user approved in step 4 was the **staged** content, so this is the only point in the flow
+where a clobbered catalog would be visible to anyone.
+
+**Now confirm the resolved upstream target back to the user and take an explicit yes — before running
+the push below.** State the `owner/repo`. `--upstream` defaults to `MasterDevs/masterclaude`, so a run
+the user believed was a rehearsal against their own fork reaches the production repository unless this
+confirmation happens here: at the push, not only where the default was described. The confirmation is
+deliberately **outside** the block above and **above** the push, because a push is a one-way action and
+an instruction that follows the command it guards has already been skipped.
+
+```
+git push -u origin <type>/<slug>
+```
 
 **Forbidden in this flow — these commands must never appear:**
 

@@ -652,12 +652,25 @@ check('gold/SKILL.md — the destination table and the lane moves both name thei
   const publicRow = table.split('\n').find((l) => l.includes('**public**')) || ''
   const localToTeam = move.split('\n').find((l) => l.includes('local \u2192 team')) || ''
   return [
-    [/scope: local[\s\S]{0,40}source: local/.test(publicRow),
-      'the public answer must set both fields on the copy the user keeps'],
-    [/scope: seeds[\s\S]{0,40}source: contributed/.test(publicRow),
-      'and both on the copy that is submitted — the shipped lane is scope: seeds'],
-    [/--playbook-dir/.test(localToTeam) && /--gold-dir/.test(localToTeam),
-      'a lane move must name the lane on both commands, exactly as the write step does'],
+    // Anchored on which copy carries which pair. Asserting only that both pairs appear lets them be
+    // swapped — kept copy `seeds`/`contributed`, submitted copy `local`/`local` — which passes while
+    // meaning the opposite, and ships an entry into the public lane claiming to be someone's laptop.
+    [/kept copy[\s\S]{0,60}scope: local[\s\S]{0,30}source: local/.test(publicRow),
+      'the copy the user keeps must be named, and must carry local/local'],
+    [/submitted copy[\s\S]{0,60}scope: seeds[\s\S]{0,30}source: contributed/.test(publicRow),
+      'the copy that is submitted must be named, and must carry seeds/contributed'],
+    // `scope: seeds` is only real if the step that rewrites the staged copy sets it. The skill is told
+    // to follow the reference and not restate it, so a value promised here and absent there is a value
+    // nothing ever writes — and `--validate` accepts `local`, so nothing downstream catches it either.
+    [/scope: seeds/.test(reference('upstream-submit.md')),
+      'and the reference step that rewrites the staged copy must actually set scope: seeds'],
+    // `--playbook-dir` is inert for `--scope repo` (gold.mjs resolves that lane from repoRoot), and
+    // `--gold-dir` without `--repo-root` skips every anchor and exits 0 — so a check that demands only
+    // those two flags locks in a move that cannot detect a deleted anchor file.
+    [/--reindex --scope repo --repo-root/.test(localToTeam),
+      'the repo lane is pinned by --repo-root, not --playbook-dir'],
+    [/--validate --gold-dir[\s\S]{0,60}--repo-root/.test(localToTeam),
+      'and the validation needs --repo-root, or every anchor is skipped and rot passes'],
   ]
 })
 
@@ -699,15 +712,30 @@ check('upstream-submit.md — staging covers rows, not just whole files', () => 
 // and gold enters this reference "from step 2 onward", so the one caller that reaches a public push was
 // the one caller that never read it. A default that silently resolves to the production repository is
 // exactly the outward-facing action that needs a yes.
-check('upstream-submit.md — the upstream target is confirmed at the push, not only where it is described', () => {
+check('upstream-submit.md — step 6 confirms before it pushes, and places a row without clobbering', () => {
   const text = reference('upstream-submit.md')
   const push = text.slice(text.indexOf('## 6.'), text.indexOf('## 7.'))
+  // ORDER, not mere presence. The push lives in a fenced block an agent may run as one call, so a
+  // confirmation printed after it has already been skipped — the same miss as the preamble, one step
+  // lower. The only assertion that catches that is position.
+  const confirmAt = push.search(/[Cc]onfirm the resolved/)
+  const pushAt = push.indexOf('git push -u origin')
   return [
-    [/git push -u origin/.test(push), 'the push belongs in this step'],
-    [/[Cc]onfirm the resolved/.test(push) && /before running that push/.test(push),
+    [pushAt !== -1, 'the push belongs in this step'],
+    [confirmAt !== -1,
       'the target must be confirmed here, where the push is — the preamble is skipped by gold'],
+    [confirmAt !== -1 && pushAt !== -1 && confirmAt < pushAt,
+      'and it must come BEFORE the push command, not after it'],
     [/MasterDevs\/masterclaude/.test(push),
       'and it must name the default, since that is what a run silently resolves to'],
+    // Step 2 stages a pattern as a one-row fragment. If step 6 only knows `cp`, following both
+    // literally replaces the shipped catalog with that single row and commits the deletion — so
+    // mode 6's every run would open a destructive pull request.
+    [/append/i.test(push), 'a row-shaped subject must be appended, never copied over its destination'],
+    [/catalog\.md/.test(push) && /lessons\/<lens>\.md/.test(push),
+      'and both row destinations must be named here, not only in the staging step'],
+    [/no deletions/i.test(push),
+      'and the diff must be checked for deletions before the commit — that is where a clobber shows'],
   ]
 })
 
@@ -719,8 +747,12 @@ check('scrub-patterns.txt — the header names the staged copy, not the clone', 
   const head = text.slice(0, text.indexOf('\n\n'))
   return [
     [/\$WORK\/submit/.test(head), 'the rewrite target must be the staged copy'],
-    [!/temp clone's copy/.test(head), 'and must not read as rewriting inside the pushable clone'],
-    [/BEFORE the throwaway clone/i.test(text), 'the ordering must be stated, not implied'],
+    // Widened past the one phrase that was there before: any wording that puts the rewrite inside the
+    // clone inverts the guarantee, and excluding a single sentence would not notice a reworded one.
+    [!/clone's copy/.test(head), 'and must not read as rewriting inside the pushable clone'],
+    // Scoped to the header. Left running over the whole file, this sentence could migrate into some
+    // later comment block and the check would stay green while the header itself said nothing.
+    [/BEFORE the throwaway clone/i.test(head), 'the ordering must be stated in the header, not implied'],
   ]
 })
 

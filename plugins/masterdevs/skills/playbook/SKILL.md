@@ -32,7 +32,7 @@ Read every `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
 4. **Say plainly what you skipped and why** — "142 singletons in areas untouched since July, left staged." Silent truncation reads as completeness.
 
 For each presented candidate, let the user **promote**, **reject**, or **edit-then-promote**.
-- On promote: append a compressed row/entry to the promoted `catalog.md` / `lessons/<lens>.md` in the required format (patterns: `| Name | Intent | Reach for when | Skip when |`, ≤~30 words/cell, no prose, no code samples; lessons: one `**Lesson** — … **Seen:** … **Why:** …` entry). Then remove it from the candidates file.
+- On promote: append a compressed row/entry to the promoted `catalog.md` / `lessons/<lens>.md` in the required format (patterns: `| Pattern | Intent | Reach for when | Skip when |` — the column is `Pattern`, matching every shipped catalog and the header `playbook.mjs` writes; ≤~30 words/cell, no prose, no code samples; lessons: one `**Lesson** — … **Seen:** … **Why:** …` entry). Then remove it from the candidates file.
 - On reject: remove it from candidates (optionally note why, to avoid re-staging).
 
 ### 2. Add a pattern directly (human-confirmed)
