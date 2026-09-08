@@ -846,13 +846,18 @@ check('scrub patterns — real leaks match, ordinary technical prose does not', 
   const src = path.join(ROOT, 'plugins/masterdevs/references/scrub-patterns.txt')
   // Comments and blanks stripped exactly the way contribute/SKILL.md strips them — a blank line in a
   // `grep -f` list matches every line, so this step is load-bearing, not cosmetic.
-  execSync(`grep -hvE '^[[:space:]]*(#|$)' ${JSON.stringify(src)} > ${JSON.stringify(active)}`)
+  // Captured in-process and written with fs rather than redirected through the shell: `>` puts
+  // quoting at the mercy of whichever shell runs it. `grep` itself stays, because fidelity with the
+  // real gate is the whole point — a JS RegExp would test a dialect the gate never uses.
+  fs.writeFileSync(active,
+    execSync(`grep -hvE '^[[:space:]]*(#|$)' ${JSON.stringify(src)}`, { encoding: 'utf8' }))
 
+  // Fed on stdin, exactly as the gate's own controls are (`printf … | grep -qInE -f "$PATTERNS" -`),
+  // so the sample never becomes a file whose name or contents the shell has to quote.
   const hits = (line) => {
-    const f = path.join(TMP, 'scrub-sample.txt')
-    fs.writeFileSync(f, `${line}\n`)
     try {
-      execSync(`grep -qE -f ${JSON.stringify(active)} ${JSON.stringify(f)}`, { stdio: 'ignore' })
+      execSync(`grep -qE -f ${JSON.stringify(active)} -`,
+        { input: `${line}\n`, stdio: ['pipe', 'ignore', 'ignore'] })
       return true
     } catch { return false }
   }
