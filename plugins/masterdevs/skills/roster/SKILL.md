@@ -11,10 +11,10 @@ The Review Panel is extensible: add a performance, security, accessibility, data
 `${CLAUDE_PLUGIN_DATA}/playbook` if it resolves, else `~/.claude/plugins/data/masterdevs/playbook`.
 
 ## What you do
-Append a reviewer entry to `$PLAYBOOK_DIR/rosters/reviewers.user.json` (create it as `[]` if absent). This file **appends to / overrides by `name`** the shipped `reviewers.json` at build time — the defaults are never edited.
+Append a reviewer entry to `$PLAYBOOK_DIR/rosters/reviewers.user.json` (create it as `[]` if absent). Entries here **run in addition to** the shipped default reviewer; the defaults are never edited. Reusing a default's `name` does not currently replace it — both run — so pick a distinct name.
 
 Collect from the user (ask only for what's missing):
-- `name` — unique key (overrides a default reviewer if it reuses that name).
+- `name` — unique key. Pick one no shipped default uses; a repeat adds a second reviewer rather than replacing the first.
 - `lens` — the review dimension (`security`, `performance`, `frontend`, `accessibility`, …). Drives the Lessons lane and matching against subtask lenses.
 - `agentType` — the agent to run, e.g. `some-plugin:accessibility-reviewer`, or a local agent name. Confirm it's installed. (The masterdevs default is a single combined `masterdevs:reviewer` covering security/performance/design/correctness; add your own here to run alongside it.)
 - `triggers` — any of: `{"always": true}`, `{"lenses": [...]}`, `{"globs": [...]}`, `{"sensitiveTier": true}`. The reviewer fires if **any** trigger matches (subject to tier depth: small = correctness only; sensitive = triggered + security always).

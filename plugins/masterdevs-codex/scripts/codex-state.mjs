@@ -188,7 +188,10 @@ function copyMissing(sourceDir, targetDir) {
 
 function bootstrapPlaybook(playbookDir) {
   const seedVersion = fs.readFileSync(path.join(SEEDS, 'VERSION'), 'utf8').trim()
-  const stampPath = path.join(playbookDir, 'SEED_VERSION')
+  // Stamped per adapter. One MASTERDEVS_DATA_DIR can be pointed at a Playbook the Claude adapter
+  // already set up, and that adapter writes a plain SEED_VERSION from a VERSION file byte-identical
+  // to ours — so a shared stamp reads as "already current" and our seeds never install at all.
+  const stampPath = path.join(playbookDir, 'SEED_VERSION.codex')
   const installed = (() => {
     try { return fs.readFileSync(stampPath, 'utf8').trim() } catch { return null }
   })()

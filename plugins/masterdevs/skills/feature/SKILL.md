@@ -23,7 +23,7 @@ The engine is a single RPI-style loop in one worktree — **Refine → Plan → 
 
 1. If `$PLAYBOOK_DIR` does **not** exist: copy the shipped seeds wholesale —
    `cp -R "$PLUGIN_ROOT/playbook-seeds/" "$PLAYBOOK_DIR"` — then write `$PLAYBOOK_DIR/SEED_VERSION` with the contents of `$PLUGIN_ROOT/playbook-seeds/VERSION`.
-2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` < shipped `VERSION`: **merge, don't clobber.** For each seed `catalog.md`/roster, add only entries whose pattern/name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
+2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` is missing, unreadable, or < shipped `VERSION`: **merge, don't clobber.** (A missing stamp means another adapter created this Playbook — treat it as older than shipped and merge into it. Never `cp -R` over a `$PLAYBOOK_DIR` that already exists.) Create any seed file that is absent entirely. For each seed `catalog.md`/roster that does exist, add only entries whose pattern/name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
 3. Ensure candidate staging files exist (create empty with headers if missing): `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
 4. **Close the learning loop before this run's agents load anything:**
 

@@ -18,15 +18,17 @@ jobs:
       - name: Control-flow scenarios
         run: node scripts/loop-scenarios.mjs
 
+      # Exercises the Codex run store in a temporary repo, asserts the assets copied into both
+      # plugins stay byte-identical, and checks the Codex rosters against the Codex runtime —
+      # they name host-specific agents, so they are the one thing that must NOT match Claude's.
+      # Without this step the whole Codex adapter ships unchecked.
+      - name: Codex state scenarios
+        run: node scripts/codex-state-scenarios.mjs
+
       # Breaks the loop deliberately and asserts the suite goes red. A green suite that
       # catches nothing is worse than no suite; this is what proves it catches something.
       - name: Mutation check
         run: node scripts/mutation-check.mjs
-
-      # Exercises the Codex run store in a temporary repo and asserts the files copied into both
-      # plugins stay byte-identical. Without this step the whole Codex adapter ships unchecked.
-      - name: Codex state scenarios
-        run: node scripts/codex-state-scenarios.mjs
 
       # The bundled scripts ship to users, so a syntax error here is a broken install.
       - name: Scripts parse

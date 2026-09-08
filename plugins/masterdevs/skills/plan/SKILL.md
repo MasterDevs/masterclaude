@@ -21,7 +21,8 @@ The Architect needs a clear target or it plans the wrong thing.
 `PLAYBOOK_DIR` = `$DATA_DIR/playbook`, where `DATA_DIR` is `${CLAUDE_PLUGIN_DATA}` or
 `~/.claude/plugins/data/masterdevs-masterclaude/`. If it doesn't exist, seed it:
 `cp -R "${CLAUDE_PLUGIN_ROOT}/playbook-seeds/" "$PLAYBOOK_DIR"` and write `SEED_VERSION` from the shipped
-`VERSION`.
+`VERSION`. If it exists but has no `SEED_VERSION`, another adapter created it: fill in only the seed
+files that are absent and write `SEED_VERSION`, rather than copying over what is already there.
 
 ## Step 3 — Run the Architect
 

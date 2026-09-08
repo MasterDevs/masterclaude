@@ -67,14 +67,53 @@ try {
   git('init', '--quiet')
 
   scenario('shared protocols and Playbook assets stay byte-identical', () => {
+    const rosters = `playbook-seeds${path.sep}rosters${path.sep}`
+    const seedsOf = (plugin) => filesUnder(path.join(ROOT, 'plugins', plugin, 'playbook-seeds'))
+      .map((file) => path.relative(path.join(ROOT, 'plugins', plugin), file))
+    const claudeSeeds = seedsOf('masterdevs')
+    const codexSeeds = seedsOf('masterdevs-codex')
+    const sharedSeeds = (list) => list.filter((relative) => !relative.startsWith(rosters)).sort()
+
+    // Only the rosters may diverge. They name the host's own agents, and asserting byte-identity
+    // over them is what once locked Claude's `agentType` and `model` values into the Codex
+    // distribution. Pinning the excluded set stops that exclusion from quietly widening and
+    // leaving this scenario green while a catalog or lesson really drifted.
+    assert.deepEqual(
+      claudeSeeds.filter((relative) => relative.startsWith(rosters)).sort(),
+      [path.join('playbook-seeds', 'rosters', 'architects.json'),
+       path.join('playbook-seeds', 'rosters', 'reviewers.json')],
+      'the excluded set changed — confirm it still belongs outside the byte-identity check')
+
+    // Both directions: a seed added to one adapter and forgotten in the other is drift too, and
+    // enumerating a single side reads straight past it.
+    assert.deepEqual(sharedSeeds(codexSeeds), sharedSeeds(claudeSeeds),
+      'a Playbook seed exists in one adapter and not the other')
+
+    // Directories as well as files. filesUnder returns files only, so an empty seed directory is
+    // invisible here — yet copyMissing recreates it in every Playbook and bootstrapPlaybook then
+    // materializes it as a lane with its own candidates file. Empty means unnoticed, not harmless.
+    const dirsOf = (plugin) => {
+      const root = path.join(ROOT, 'plugins', plugin, 'playbook-seeds')
+      const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => [path.relative(root, path.join(dir, entry.name)),
+          ...walk(path.join(dir, entry.name))])
+      return walk(root)
+        .filter((relative) => relative !== 'rosters' && !relative.startsWith(`rosters${path.sep}`))
+        .sort()
+    }
+    assert.deepEqual(dirsOf('masterdevs-codex'), dirsOf('masterdevs'),
+      'a Playbook seed directory exists in one adapter and not the other')
+
     const shared = [
       'scripts/playbook.mjs',
       'scripts/preflight.mjs',
       'references/interview.md',
       'references/reporting.md',
-      ...filesUnder(path.join(ROOT, 'plugins/masterdevs/playbook-seeds'))
-        .map((file) => path.relative(path.join(ROOT, 'plugins/masterdevs'), file)),
+      ...sharedSeeds(claudeSeeds),
     ]
+    assert.equal(shared.length, 17,
+      'the shared list changed size — confirm the new file belongs in it, then update this count')
     for (const relative of shared) {
       const claude = fs.readFileSync(path.join(ROOT, 'plugins/masterdevs', relative))
       const codex = fs.readFileSync(path.join(ROOT, 'plugins/masterdevs-codex', relative))
@@ -82,12 +121,197 @@ try {
     }
   })
 
+  scenario('adapter rosters never share a filename', () => {
+    const namesIn = (plugin) =>
+      fs.readdirSync(path.join(ROOT, 'plugins', plugin, 'playbook-seeds/rosters')).sort()
+    const claude = namesIn('masterdevs')
+    const codex = namesIn('masterdevs-codex')
+    assert.ok(claude.length > 0 && codex.length > 0, 'an adapter ships no rosters at all')
+    // One MASTERDEVS_DATA_DIR can be pointed at by both adapters, and seeds are copied in without
+    // overwriting. Distinct filenames are what stop the first adapter to bootstrap from handing the
+    // other its host-specific roster.
+    const overlap = codex.filter((name) => claude.includes(name))
+    assert.deepEqual(overlap, [], `${overlap.join(', ')} would collide in a shared Playbook directory`)
+    // The one thing standing between a maintainer and re-shipping the defaults onto the path an
+    // earlier build told users to write to. `.defaults` and `.user` say which half of the pair it is.
+    for (const name of codex) {
+      assert.match(name, /\.codex\.(defaults|user)\.json$/,
+        `${name} does not say whether it is the shipped defaults or the user's own roster`)
+    }
+  })
+
+  scenario('Codex rosters name installed skills and carry no Claude-only fields', () => {
+    const rosterDir = path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds/rosters')
+    const files = fs.readdirSync(rosterDir)
+    assert.ok(files.length >= 2, 'expected a reviewer roster and an architect roster')
+    for (const file of files) {
+      const entries = JSON.parse(fs.readFileSync(path.join(rosterDir, file), 'utf8'))
+      assert.ok(Array.isArray(entries) && entries.length > 0, `${file} holds no entries`)
+      for (const entry of entries) {
+        for (const field of ['model', 'agentType', 'reasoningEffort']) {
+          assert.ok(!(field in entry), `${file} carries \`${field}\`, which Codex has no per-agent setting for`)
+        }
+        assert.equal(typeof entry.roleSkill, 'string', `${file} has an entry with no roleSkill`)
+        // Naming *a* skill is not enough. masterdevs-engineer also ships an agent definition, so
+        // without pinning the role a shipped roster could put a workspace-writing agent into the
+        // read-only review panel — the panel runs concurrently with the verifier, which reads the
+        // tree. Each roster serves one role, and the filename says which.
+        const role = file.startsWith('reviewers.') ? 'masterdevs-reviewer' : 'masterdevs-architect'
+        assert.equal(entry.roleSkill, role,
+          `${file} names ${entry.roleSkill}; a ${role.replace('masterdevs-', '')} roster must name ${role}`)
+        // The docs promise that an entry with no `triggers`, or `lens: "all"`, always runs. A
+        // shipped default that asked for a trigger match could therefore never fire at all, and
+        // the loop would report a clean review having run no reviewer.
+        assert.ok(!('triggers' in entry) || entry.lens === 'all',
+          `${file} gives ${entry.name ?? entry.lens} triggers, so a shipped default may never run`)
+        const yaml = path.join(ROOT, 'plugins/masterdevs-codex/skills', entry.roleSkill, 'agents/openai.yaml')
+        assert.ok(fs.existsSync(yaml),
+          `${file} names roleSkill ${entry.roleSkill}, which this plugin does not ship as an invocable skill`)
+        // The whole reason these rosters carry no model: the agent definition has nowhere to put one.
+        assert.doesNotMatch(fs.readFileSync(yaml, 'utf8'), /^\s*model:/m,
+          `${entry.roleSkill} declares a model — reassess whether the roster should carry one too`)
+      }
+    }
+  })
+
+  scenario('every catalog the Codex architect roster names ships as a seed', () => {
+    const seeds = path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds')
+    const entries = JSON.parse(fs.readFileSync(path.join(seeds, 'rosters/architects.codex.defaults.json'), 'utf8'))
+    const named = new Set(entries.flatMap((entry) => entry.catalogs ?? []))
+    assert.ok(named.size > 0, 'the architect roster routes no lens to a catalog')
+    for (const catalog of named) {
+      assert.ok(fs.existsSync(path.join(seeds, 'patterns', catalog, 'catalog.md')),
+        `the architect roster names the ${catalog} catalog, which does not ship`)
+    }
+  })
+
+  // Codex-only by design: the Claude adapter's roster contract is enforced by its own workflow, and
+  // its shipped reviewers.json is reached through a workflow argument rather than a skill mention.
+  scenario('Codex skills read exactly the roster files that ship', () => {
+    const shipped = fs.readdirSync(path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds/rosters'))
+    // Spelled out per skill. A total count is too slack to be worth anything: with a floor, deleting
+    // the architect roster's only consumer — the very gap this adapter shipped with — costs nothing,
+    // and so does dropping the user half of the reviewer panel.
+    const expected = {
+      'masterdevs-plan': ['architects.codex.defaults.json'],
+      'masterdevs-review': ['reviewers.codex.defaults.json', 'reviewers.codex.user.json'],
+      'masterdevs-roster': ['reviewers.codex.defaults.json', 'reviewers.codex.user.json'],
+      'masterdevs-feature': ['reviewers.codex.defaults.json', 'reviewers.codex.user.json'],
+    }
+    const found = {}
+    // Every markdown file, not just SKILL.md: the feature loop's reference doc is where the user
+    // roster is actually consumed, and scanning only SKILL.md left that consumer unnamed.
+    for (const file of filesUnder(path.join(ROOT, 'plugins/masterdevs-codex/skills'))) {
+      if (!file.endsWith('.md')) continue
+      // Deliberately not anchored on `playbook/`: the sibling Claude skills spell this
+      // `$PLAYBOOK_DIR/rosters/...`, so a copy-paste from there must not slip past this check.
+      const names = [...fs.readFileSync(file, 'utf8').matchAll(/rosters\/([\w.-]+\.json)/g)]
+        .map(([, name]) => name)
+      if (!names.length) continue
+      const skill = path.relative(path.join(ROOT, 'plugins/masterdevs-codex/skills'), file)
+        .split(path.sep)[0]
+      found[skill] = [...new Set([...(found[skill] ?? []), ...names])].sort()
+    }
+    assert.deepEqual(found, expected,
+      "a skill's set of named roster files changed — update `expected` if that was intended")
+
+    // A `.user.json` belongs to the user and is absent until they add one, but its shipped
+    // defaults must exist — that pairing is what makes the defaults load at all.
+    const defaultsFor = (name) =>
+      name.endsWith('.user.json') ? name.replace('.user.json', '.defaults.json') : name
+    const named = new Set()
+    for (const names of Object.values(found)) {
+      for (const name of names) {
+        const base = defaultsFor(name)
+        assert.ok(shipped.includes(base), `${name} is named, but no seed ships ${base}`)
+        named.add(base)
+      }
+    }
+    // A `.user.json` path belongs to the user. Shipping one as a seed would pre-empt the file the
+    // roster skill tells them to create, and copyMissing would then never let theirs land.
+    for (const name of shipped) {
+      assert.ok(!name.endsWith('.user.json'),
+        `${name} ships as a seed, but that path belongs to the user's own roster`)
+    }
+    // And the reverse. A roster that ships with nothing reading it is this adapter's original
+    // defect — the architect roster sat unused because only one direction was ever checked.
+    for (const name of shipped) {
+      assert.ok(named.has(name), `${name} ships but no skill names it`)
+    }
+  })
+
+  scenario('the roster docs point writes and prohibitions at the right half of the pair', () => {
+    const read = (skill, name = 'SKILL.md') =>
+      fs.readFileSync(path.join(ROOT, 'plugins/masterdevs-codex/skills', skill, name), 'utf8')
+    // Naming both files is not enough — which one a user writes to and which one they must leave
+    // alone is the entire contract. Getting these backwards is how the shipped default came to be
+    // the file users were told to edit, so that it never loaded.
+    const roster = read('masterdevs-roster')
+    const store = roster.match(/Store user reviewers in `playbook\/rosters\/([\w.-]+\.json)`/)
+    const protect = roster.match(/never edit the shipped `playbook\/rosters\/([\w.-]+\.json)`/)
+    assert.ok(store, 'the roster skill no longer says where to store user reviewers')
+    assert.ok(protect, 'the roster skill no longer says which file must not be edited')
+    assert.match(store[1], /\.user\.json$/, `user reviewers are sent to ${store[1]}`)
+    assert.match(protect[1], /\.defaults\.json$/, `${protect[1]} is protected instead of the defaults`)
+
+    const review = read('masterdevs-review')
+    const defaults = review.match(/shipped defaults in `playbook\/rosters\/([\w.-]+\.json)`/)
+    assert.ok(defaults, 'the review skill no longer says where the shipped defaults come from')
+    assert.match(defaults[1], /\.defaults\.json$/, `the panel loads defaults from ${defaults[1]}`)
+  })
+
+  scenario('no Codex skill documents a roster field this runtime lacks', () => {
+    for (const file of filesUnder(path.join(ROOT, 'plugins/masterdevs-codex/skills'))) {
+      if (!file.endsWith('.md')) continue
+      const text = fs.readFileSync(file, 'utf8')
+      const where = path.relative(ROOT, file)
+      // The shipped rosters are checked above, but this is where a user is *told* what to write.
+      // Documenting a field the runtime has no setting for puts the bug back through their file.
+      for (const field of ['model', 'agentType', 'reasoningEffort']) {
+        // Quoted at all, or bare in a key position. No colon is required on the quoted form: the
+        // sibling Claude skill documents these as "- `model` — `sonnet | opus | fable`", and that
+        // bullet is the copy-paste source of the original defect. `model` is an ordinary English
+        // word, so the bare form still needs a key position or "the mental model:" would trip it.
+        assert.doesNotMatch(text, new RegExp(
+          `['"\x60]${field}['"\x60]|^\\s*(?:[-*]\\s*)?${field}\\s*:`, 'm'),
+          `${where} documents a roster \`${field}\` field, which Codex sets per session, not per agent`)
+      }
+    }
+  })
+
+  // Both adapters can be pointed at one Playbook, and the Claude adapter stamps a plain
+  // SEED_VERSION taken from a VERSION file byte-identical to ours. A shared stamp therefore reads
+  // as "already current" and skips the copy entirely, so the Codex rosters never arrive and the
+  // review panel and lens routing silently fall back to bare defaults.
+  scenario('a Playbook another adapter already stamped still receives the Codex seeds', () => {
+    const shared = path.join(scratch, 'shared-state')
+    const playbookDir = path.join(shared, 'playbook')
+    fs.cpSync(path.join(ROOT, 'plugins/masterdevs/playbook-seeds'), playbookDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(playbookDir, 'SEED_VERSION'),
+      fs.readFileSync(path.join(playbookDir, 'VERSION'), 'utf8'),
+    )
+
+    const result = spawnSync(process.execPath, [SCRIPT, 'paths', '--json'],
+      { cwd: repo, env: { ...process.env, MASTERDEVS_DATA_DIR: shared }, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+
+    for (const roster of ['reviewers.codex.defaults.json', 'architects.codex.defaults.json']) {
+      assert.ok(fs.existsSync(path.join(playbookDir, 'rosters', roster)),
+        `${roster} never installed into a Playbook another adapter had already stamped`)
+    }
+    // The other adapter's own files are left exactly as they were.
+    assert.ok(fs.existsSync(path.join(playbookDir, 'rosters', 'reviewers.json')),
+      "the Claude adapter's roster was disturbed")
+  })
+
   scenario('paths bootstrap a writable Playbook from shipped seeds', () => {
     const paths = invoke('paths', '--json')
     assert.equal(paths.repoRoot, fs.realpathSync(repo))
     assert.equal(paths.dataDir, dataDir)
     assert.equal(paths.playbookDir, path.join(dataDir, 'playbook'))
-    assert.ok(fs.existsSync(path.join(paths.playbookDir, 'SEED_VERSION')))
+    assert.ok(fs.existsSync(path.join(paths.playbookDir, 'SEED_VERSION.codex')),
+      'the seed release was not stamped under a name belonging to this adapter alone')
     assert.ok(fs.existsSync(path.join(paths.playbookDir, 'patterns/core/candidates.md')))
     assert.ok(fs.existsSync(path.join(paths.playbookDir, 'lessons/security.candidates.md')))
   })
@@ -211,14 +435,14 @@ try {
     fs.writeFileSync(edited, learned)
     const dropped = path.join(playbookDir, 'lessons/security.md')
     fs.rmSync(dropped)
-    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION'), 'an-older-release\n')
+    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION.codex'), 'an-older-release\n')
 
     invoke('paths', '--json')
 
     assert.ok(fs.existsSync(dropped), 'a missing seed file was not restored')
     assert.equal(fs.readFileSync(edited, 'utf8'), learned, 'a promoted entry was overwritten by a seed')
     assert.equal(
-      fs.readFileSync(path.join(playbookDir, 'SEED_VERSION'), 'utf8').trim(),
+      fs.readFileSync(path.join(playbookDir, 'SEED_VERSION.codex'), 'utf8').trim(),
       fs.readFileSync(path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds/VERSION'), 'utf8').trim(),
     )
   })
@@ -306,7 +530,7 @@ try {
     const lane = path.join(playbookDir, 'patterns', 'core')
     fs.rmSync(lane, { recursive: true, force: true })
     fs.writeFileSync(lane, 'a file where a directory belongs\n')
-    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION'), 'an-older-release\n')
+    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION.codex'), 'an-older-release\n')
     const result = spawnSync(process.execPath, [SCRIPT, 'paths'], { cwd: repo, env, encoding: 'utf8' })
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /needs a directory/)

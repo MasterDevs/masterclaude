@@ -145,6 +145,8 @@ const STATE_MUTATIONS = [
   ['one corrupt run.json breaks every listing',
     'try { runs.push(readRun(path.join(root, entry.name)).state) } catch { continue }',
     'runs.push(readRun(path.join(root, entry.name)).state)'],
+  ['a seed overwrites a Playbook file the run has already edited',
+    '} else if (!existing) {', '} else if (true) {'],
   ['seed upgrades gated on the directory existing (a new lane never arrives)',
     'if (installed !== seedVersion) {', 'if (!fs.existsSync(playbookDir)) {'],
   ['a Playbook path of the wrong kind fails without naming itself',
@@ -161,51 +163,247 @@ const STATE_MUTATIONS = [
   ['a nonsense lock window becomes NaN again (the wait loop spins forever)',
     'return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_LOCK_WINDOW_MS ? parsed : fallback',
     'return parsed'],
+  ['the seed stamp goes back to a name both adapters write (our seeds never install)',
+    "const stampPath = path.join(playbookDir, 'SEED_VERSION.codex')",
+    "const stampPath = path.join(playbookDir, 'SEED_VERSION')"],
   ['running outside a repository loses the explanation',
     "throw new Error('not inside a git repository — run this from the repository you are working in')",
     "throw new Error('failed')"],
+]
+
+const CODEX = path.join(ROOT, 'plugins/masterdevs-codex')
+const REVIEWER_ROSTER = path.join(CODEX, 'playbook-seeds/rosters/reviewers.codex.defaults.json')
+const ARCHITECT_ROSTER = path.join(CODEX, 'playbook-seeds/rosters/architects.codex.defaults.json')
+const REVIEW_SKILL = path.join(CODEX, 'skills/masterdevs-review/SKILL.md')
+const PLAN_SKILL = path.join(CODEX, 'skills/masterdevs-plan/SKILL.md')
+const ROSTER_SKILL = path.join(CODEX, 'skills/masterdevs-roster/SKILL.md')
+const LOOP_DOC = path.join(CODEX, 'skills/masterdevs-feature/references/feature-loop.md')
+const SHARED_CATALOG = path.join(CODEX, 'playbook-seeds/patterns/core/catalog.md')
+const REVIEWER_AGENT = path.join(CODEX, 'skills/masterdevs-reviewer/agents/openai.yaml')
+
+// The shipped rosters are data, not code, and they are what actually went wrong: the Codex copies
+// were byte-identical to Claude's, naming an `opus` model and a `masterdevs:` subagent that no
+// OpenAI runtime has. Nothing crashed, so three review rounds read straight past it. These mutations
+// exist because a data file can be as wrong as a function and is far easier to leave unguarded.
+const REVIEWER_ROSTER_MUTATIONS = [
+  ['a Claude model name creeps back into the reviewer roster',
+    '"roleSkill": "masterdevs-reviewer"',
+    '"roleSkill": "masterdevs-reviewer",\n    "model": "opus"'],
+  ['a shipped default is gated behind a trigger match, so it may never run',
+    '"lens": "all",', '"lens": "security",\n    "triggers": { "lenses": ["security"] },'],
+  ['the reviewer roster names a Claude subagent instead of a Codex skill',
+    '"roleSkill": "masterdevs-reviewer"', '"agentType": "masterdevs:reviewer"'],
+  ['a Claude-named roster reappears inside the Codex plugin',
+    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/reviewers.json', contents: '[]\n' }],
+]
+
+const ARCHITECT_ROSTER_MUTATIONS = [
+  ['a Claude model name creeps back into the architect roster',
+    '"catalogs": ["core", "frontend"] }', '"catalogs": ["core", "frontend"], "model": "opus" }'],
+  ['the architect roster routes a lens to a catalog that does not ship',
+    '"catalogs": ["core", "backend", "concurrency"]', '"catalogs": ["core", "backend", "persistence"]'],
+]
+
+// A skill that reads a roster nothing ships is the other half of the same bug: the review panel
+// named a file that only ever existed as the user's, so the shipped default never loaded.
+const REVIEW_SKILL_MUTATIONS = [
+  ['the review panel reads a shipped roster no seed provides',
+    'playbook/rosters/reviewers.codex.defaults.json', 'playbook/rosters/reviewers.json'],
+  ['the user roster stops pairing with the defaults it extends',
+    'playbook/rosters/reviewers.codex.user.json', 'playbook/rosters/panel.user.json'],
+]
+
+const PLAN_SKILL_MUTATIONS = [
+  ['the plan skill routes lenses through a roster that does not ship',
+    'playbook/rosters/architects.codex.defaults.json', 'playbook/rosters/architects.json'],
+  ['the architect roster loses its only consumer again',
+    'read `playbook/rosters/architects.codex.defaults.json` for the catalogs that lens names',
+    'use your judgement about which catalogs that lens wants'],
+  ['a roster path is written the Claude way, with a stale Claude filename',
+    'playbook/rosters/architects.codex.defaults.json', '$PLAYBOOK_DIR/rosters/architects.json'],
+]
+
+// The roster skill is the one place a user is *told* what to write. Guarding only the shipped data
+// leaves a door open: re-document a field the runtime lacks and the bug returns through the user's
+// own file, which no shipped-data check ever looks at.
+const ROSTER_SKILL_MUTATIONS = [
+  ['the roster skill swaps which file is the shipped one and which is the user\'s',
+    'Store user reviewers in `playbook/rosters/reviewers.codex.user.json`; never edit the shipped `playbook/rosters/reviewers.codex.defaults.json`.',
+    'Store user reviewers in `playbook/rosters/reviewers.codex.defaults.json`; never edit the shipped `playbook/rosters/reviewers.codex.user.json`.'],
+  ['the roster skill documents a per-agent model override again',
+    '  "lessonsLane": "accessibility"', '  "model": "optional model override",\n  "lessonsLane": "accessibility"'],
+]
+
+// "Exclude rosters from byte-identity" is a change to a *check*, so the thing worth proving is that
+// the check still bites everywhere else.
+// The feature loop is the main product path, and its only mention of user reviewers named no file
+// at all — so a reviewer someone registered would simply never fire, with nothing to show why.
+const LOOP_DOC_MUTATIONS = [
+  ['the feature loop stops naming the rosters its review panel comes from',
+    'Build it from `playbook/rosters/reviewers.codex.defaults.json` — `$masterdevs-reviewer` alone by default — plus any entries in `playbook/rosters/reviewers.codex.user.json`, where a user entry replaces a shipped default of the same `name`.',
+    'Any registered Codex reviewers whose triggers match run alongside it.'],
+]
+
+const SHARED_CATALOG_MUTATIONS = [
+  ['a shared catalog drifts between adapters',
+    '# Core Pattern Catalog', '# Core Pattern Catalog (codex)'],
+]
+
+// Seed drift that is not a change to any existing file: a new seed on one side only, an orphan
+// roster nothing reads, or an empty directory that ships as a phantom lane.
+// The rosters carry no model because the agent definition has nowhere to put one. If that ever
+// stops being true, the roster decision deserves revisiting rather than silently standing.
+const REVIEWER_AGENT_MUTATIONS = [
+  ['the reviewer agent gains a model, so the roster decision needs rethinking',
+    'policy:', 'model: gpt-5\npolicy:'],
+]
+
+const SEED_PARITY_MUTATIONS = [
+  ['a seed lands in one adapter and is forgotten in the other',
+    { add: 'plugins/masterdevs-codex/playbook-seeds/lessons/codex-only.md', contents: '# codex only\n' }],
+  ['a roster ships with nothing reading it',
+    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/orphans.codex.defaults.json',
+      contents: '[{ "name": "orphan", "lens": "all", "roleSkill": "masterdevs-reviewer" }]\n' }],
+  ['an empty seed directory ships as a phantom Playbook lane',
+    { addDir: 'plugins/masterdevs-codex/playbook-seeds/patterns/phantom' }],
+  ['the defaults ship again under the path an earlier build gave the user',
+    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/reviewers.codex.json',
+      contents: '[]\n' }],
+  ["a seed occupies the path reserved for the user's own roster",
+    { add: 'plugins/masterdevs-codex/playbook-seeds/rosters/reviewers.codex.user.json',
+      contents: '[{ "name": "reviewer", "lens": "all", "roleSkill": "masterdevs-reviewer" }]\n' }],
+  ['a seed lands under the Claude adapter and not this one',
+    { add: 'plugins/masterdevs/playbook-seeds/rosters/extra.json', contents: '[]\n' }],
 ]
 
 // Each target pairs a source file with the suite that is supposed to defend it.
 const TARGETS = [
   { name: 'feature-loop', src: LOOP_SRC, suite: 'scripts/loop-scenarios.mjs', mutations: MUTATIONS },
   { name: 'codex-state', src: STATE_SRC, suite: 'scripts/codex-state-scenarios.mjs', mutations: STATE_MUTATIONS },
+  { name: 'codex-reviewer-roster', src: REVIEWER_ROSTER, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEWER_ROSTER_MUTATIONS },
+  { name: 'codex-architect-roster', src: ARCHITECT_ROSTER, suite: 'scripts/codex-state-scenarios.mjs', mutations: ARCHITECT_ROSTER_MUTATIONS },
+  { name: 'codex-review-skill', src: REVIEW_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEW_SKILL_MUTATIONS },
+  { name: 'codex-plan-skill', src: PLAN_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: PLAN_SKILL_MUTATIONS },
+  { name: 'codex-roster-skill', src: ROSTER_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: ROSTER_SKILL_MUTATIONS },
+  { name: 'codex-loop-doc', src: LOOP_DOC, suite: 'scripts/codex-state-scenarios.mjs', mutations: LOOP_DOC_MUTATIONS },
+  { name: 'codex-shared-catalog', src: SHARED_CATALOG, suite: 'scripts/codex-state-scenarios.mjs', mutations: SHARED_CATALOG_MUTATIONS },
+  { name: 'codex-reviewer-agent', src: REVIEWER_AGENT, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEWER_AGENT_MUTATIONS },
+  { name: 'codex-seed-parity', src: SHARED_CATALOG, suite: 'scripts/codex-state-scenarios.mjs', mutations: SEED_PARITY_MUTATIONS },
 ]
 const originals = new Map(TARGETS.map((t) => [t.src, fs.readFileSync(t.src, 'utf8')]))
-const restoreAll = () => { for (const [file, text] of originals) fs.writeFileSync(file, text) }
+// Files a mutation created. Some invariants are about a file that must NOT exist, which find/replace
+// inside one file cannot express.
+const added = new Set()
+// Directories created to hold them. An empty directory left in playbook-seeds is invisible to git
+// and to the parity walk, but copyMissing still ships it to every user as a phantom lane — so the
+// harness has to put these back too, deepest first.
+const addedDirs = new Set()
+const restoreAll = () => {
+  for (const [file, text] of originals) fs.writeFileSync(file, text)
+  for (const file of added) { try { fs.unlinkSync(file) } catch {} }
+  for (const dir of [...addedDirs].sort((a, b) => b.length - a.length)) {
+    // Never silently: a directory left under playbook-seeds is invisible to git and poisons the
+    // next run's parity check, which is what made a red suite score 100% in the first place.
+    try { fs.rmdirSync(dir) }
+    catch (error) {
+      console.error(`could not remove ${dir}: ${error.message} — remove it before running again`)
+      process.exitCode = 1
+    }
+  }
+  added.clear()
+  addedDirs.clear()
+}
 
 process.on('exit', restoreAll)   // restore even if this crashes
-// 'exit' does not fire on a signal, and these mutations edit files that ship to users.
+// 'exit' does not fire on a signal, and these mutations edit files that ship to users. Note that
+// the loop below is fully synchronous — execSync blocks the event loop — so these handlers only run
+// once it finishes. Ctrl-C therefore looks ignored for the length of a full run; it is not, and the
+// tree is restored either way, but a kill -9 in the middle does leave a mutated file behind.
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => { restoreAll(); process.exit(1) })
 }
 
+// Every mutation is judged by "the suite went red", so a suite that is ALREADY red scores a perfect
+// report for entirely the wrong reason. That is not hypothetical: an untracked empty directory under
+// playbook-seeds fails the parity check, and git shows untracked directories as neither a change nor
+// something `git clean -f` removes — so the tree can look clean and score 76/76 while proving nothing.
+// This harness exists because a green suite can be worthless; the same has to hold for its own score.
+const requireGreen = (when) => {
+  for (const suite of new Set(TARGETS.map((target) => target.suite))) {
+    try { execSync(`node "${suite}"`, { cwd: ROOT, stdio: 'pipe' }) }
+    catch (error) {
+      console.error(`\n${suite} fails on an unmutated tree ${when}, so every mutation against it`)
+      console.error('would report `caught` for the wrong reason. Either the code has a real regression')
+      console.error('— its output is below — or the tree holds a stray untracked directory, which git')
+      console.error('reports as neither a change nor something `git clean -f` removes.\n')
+      process.stderr.write(error.stdout?.toString() ?? '')
+      process.stderr.write(error.stderr?.toString() ?? '')
+      process.exit(1)
+    }
+  }
+}
+requireGreen('before any mutation')
+
 let caught = 0
 let stale = 0
+let staleAdds = 0
 let total = 0
 for (const target of TARGETS) {
   const orig = originals.get(target.src)
   console.log(`\n${target.name} — ${target.mutations.length} mutation(s) against ${target.suite}`)
   for (const [name, from, to] of target.mutations) {
     total++
-    if (!orig.includes(from)) {
+    if (from && typeof from === 'object' && typeof from.addDir === 'string') {
+      const dir = path.join(ROOT, from.addDir)
+      if (fs.existsSync(dir)) {
+        console.log(`  STALE   ${name}  — ${from.addDir} already exists, so adding it proves nothing`)
+        staleAdds++
+        stale++
+        continue
+      }
+      for (let at = dir; !fs.existsSync(at); at = path.dirname(at)) addedDirs.add(at)
+      fs.mkdirSync(dir, { recursive: true })
+    } else if (from && typeof from === 'object') {
+      if (typeof from.add !== 'string' || typeof from.contents !== 'string') {
+        throw new Error(`mutation "${name}" must give an add path with a contents string, or an addDir`)
+      }
+      const file = path.join(ROOT, from.add)
+      if (fs.existsSync(file)) {
+        console.log(`  STALE   ${name}  — ${from.add} already exists, so adding it proves nothing`)
+        staleAdds++
+        stale++
+        continue
+      }
+      for (let dir = path.dirname(file); !fs.existsSync(dir); dir = path.dirname(dir)) addedDirs.add(dir)
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      fs.writeFileSync(file, from.contents)
+      added.add(file)
+    } else if (!orig.includes(from)) {
       console.log(`  STALE   ${name}  — mutation site no longer exists in the source`)
       stale++
       continue
+    } else {
+      fs.writeFileSync(target.src, orig.replace(from, to))
     }
-    fs.writeFileSync(target.src, orig.replace(from, to))
     let suitePassed
     try { execSync(`node "${target.suite}"`, { cwd: ROOT, stdio: 'pipe' }); suitePassed = true }
     catch { suitePassed = false }
     console.log(suitePassed ? `  MISSED  ${name}` : `  caught  ${name}`)
     if (!suitePassed) caught++
+    restoreAll()
   }
-  fs.writeFileSync(target.src, orig)
 }
 restoreAll()
 
+restoreAll()
+requireGreen('after the run restored it')
+
 console.log(`\n${caught}/${total} mutations caught`)
-if (stale) console.log(`${stale} mutation(s) STALE — the code moved; update the find/replace pair`)
+if (stale) {
+  console.log(staleAdds === stale
+    ? `${stale} mutation(s) STALE — a file that must not exist is already there; remove it`
+    : `${stale} mutation(s) STALE — the code moved; update the find/replace pair`)
+}
 if (caught !== total || stale) {
   console.log('\nA MISSED mutation means the scenario covering it asserts a side effect, not the mechanism.')
   process.exitCode = 1

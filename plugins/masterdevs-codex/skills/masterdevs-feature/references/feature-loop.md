@@ -86,7 +86,7 @@ For each round:
 2. **Refactor:** after implementation finishes, delegate a fresh `$masterdevs-engineer` subagent. It may read repository-wide for duplication but may edit only the feature scope. It applies behavior-preserving improvements and runs scoped tests.
 3. **Verify and Review in parallel:**
    - A read-only verifier owns the full-suite gate and live success criteria. It reads repository verification notes and this run's verification log, runs the full suite at most once for the current tree fingerprint, and returns `{passed, results, failures, needsApprovalFor, impossible, suiteFingerprint}`. It may update only the two verification note files named by the parent.
-   - A read-only reviewer explicitly using `$masterdevs-reviewer` reviews only the changed code. Any registered Codex reviewers whose triggers match run alongside it.
+   - A read-only reviewer panel reviews only the changed code. Build it from `playbook/rosters/reviewers.codex.defaults.json` — `$masterdevs-reviewer` alone by default — plus any entries in `playbook/rosters/reviewers.codex.user.json`, where a user entry replaces a shipped default of the same `name`. Run the entries whose triggers match the change; an entry with no `triggers`, or with `lens: "all"`, always runs. If the user file is absent, empty, or unreadable, run the shipped defaults alone.
 4. **Verification fixes:** after review finishes, if verification failed for fixable behavior, run a fresh `$masterdevs-engineer` fix agent and reverify only those failures plus the full-suite fingerprint gate. At most two fix attempts. An impossible criterion stops immediately for the user.
 5. **Iterate:** partition results into `mustFix` (critical/high or failed verification), `polish` (safe medium/low), `conflicts` (approved-scope clash), and `deferred`. A conflict stops. Continue only when `mustFix` is nonempty or verification failed and a round remains.
 
@@ -96,7 +96,7 @@ Never run two workspace-writing agents concurrently. Never let a reviewer or ver
 
 If safe medium/low revisions remain, run one fresh `$masterdevs-engineer` Polish agent. Skip anything that requires a design decision. Re-run the regression gate only if the tree fingerprint changed.
 
-If verification fixes landed after review, run one final `$masterdevs-reviewer` pass scoped only to those fixes. Reviewer and engineer agents return Playbook candidates; serialize candidate-file updates in the parent after all concurrent agents finish. Never let concurrent subagents write candidate files.
+If verification fixes landed after review, run one final pass with the panel resolved above, scoped only to those fixes. Reviewer and engineer agents return Playbook candidates; serialize candidate-file updates in the parent after all concurrent agents finish. Never let concurrent subagents write candidate files.
 
 ## 8. Reporting
 

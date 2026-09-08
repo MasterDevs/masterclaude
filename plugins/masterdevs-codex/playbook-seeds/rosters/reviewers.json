@@ -1,8 +1,0 @@
-[
-  {
-    "name": "reviewer",
-    "lens": "all",
-    "agentType": "masterdevs:reviewer",
-    "model": "opus"
-  }
-]
