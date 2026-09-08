@@ -651,6 +651,8 @@ check('gold/SKILL.md — the destination table and the lane moves both name thei
   const move = table.slice(table.indexOf('| From \u2192 to |'))
   const publicRow = table.split('\n').find((l) => l.includes('**public**')) || ''
   const localToTeam = move.split('\n').find((l) => l.includes('local \u2192 team')) || ''
+  const teamToLocal = move.split('\n').find((l) => l.includes('team \u2192 local')) || ''
+  const write = text.slice(text.indexOf('## Write the entry'))
   return [
     // Anchored on which copy carries which pair. Asserting only that both pairs appear lets them be
     // swapped — kept copy `seeds`/`contributed`, submitted copy `local`/`local` — which passes while
@@ -662,15 +664,35 @@ check('gold/SKILL.md — the destination table and the lane moves both name thei
     // `scope: seeds` is only real if the step that rewrites the staged copy sets it. The skill is told
     // to follow the reference and not restate it, so a value promised here and absent there is a value
     // nothing ever writes — and `--validate` accepts `local`, so nothing downstream catches it either.
-    [/scope: seeds/.test(reference('upstream-submit.md')),
-      'and the reference step that rewrites the staged copy must actually set scope: seeds'],
+    // Scoped to step 3 — the step that rewrites the staged copy. File-wide, this passes on any passing
+    // mention anywhere in the reference, which is the same "promised but never written" hole one level
+    // down: the skill is told to follow the reference and not restate it.
+    [/scope: seeds/.test((() => {
+      const r = reference('upstream-submit.md')
+      return r.slice(r.indexOf('## 3.'), r.indexOf('## 4.'))
+    })()),
+      'and the reference step that rewrites the staged copy must be the place that sets scope: seeds'],
     // `--playbook-dir` is inert for `--scope repo` (gold.mjs resolves that lane from repoRoot), and
     // `--gold-dir` without `--repo-root` skips every anchor and exits 0 — so a check that demands only
     // those two flags locks in a move that cannot detect a deleted anchor file.
     [/--reindex --scope repo --repo-root/.test(localToTeam),
       'the repo lane is pinned by --repo-root, not --playbook-dir'],
-    [/--validate --gold-dir[\s\S]{0,60}--repo-root/.test(localToTeam),
-      'and the validation needs --repo-root, or every anchor is skipped and rot passes'],
+    [/--validate --gold-dir "\$REPO_ROOT\/\.masterdevs\/gold" --repo-root "\$REPO_ROOT"/.test(localToTeam),
+      'and the validation must name the repo lane AND its root — pinning either alone still passes rot'],
+    // The reverse move changes the lane, so "same flags" would validate the lane just moved out of.
+    // `--scope` is read only by --reindex, so it cannot stand in for --gold-dir here either.
+    [/--reindex --scope local --playbook-dir "\$PLAYBOOK_DIR"/.test(teamToLocal)
+      && /--validate --gold-dir "\$PLAYBOOK_DIR\/gold" --repo-root "\$REPO_ROOT"/.test(teamToLocal),
+      'the reverse move must spell out its own lane on both commands, not defer to the row above'],
+    // The write step is the model both rows point at, and nothing asserted its flags — only their
+    // order. Each lane is pinned by a different flag, and the wrong one is silently inert.
+    [/--reindex --scope local --playbook-dir "\$PLAYBOOK_DIR"/.test(write)
+      && /--reindex --scope repo --repo-root "\$REPO_ROOT"/.test(write),
+      'the write step must pin each lane with the flag that lane actually reads'],
+    [/--validate --gold-dir "<the lane you wrote>" --repo-root "\$REPO_ROOT"/.test(write),
+      'and validate the lane it wrote against a named repository, or a deleted anchor exits 0'],
+    [!/--scope <local\|repo>/.test(write),
+      'and must not offer one command with a placeholder scope — it hides that the flags differ too'],
   ]
 })
 
@@ -715,11 +737,21 @@ check('upstream-submit.md — staging covers rows, not just whole files', () => 
 check('upstream-submit.md — step 6 confirms before it pushes, and places a row without clobbering', () => {
   const text = reference('upstream-submit.md')
   const push = text.slice(text.indexOf('## 6.'), text.indexOf('## 7.'))
-  // ORDER, not mere presence. The push lives in a fenced block an agent may run as one call, so a
-  // confirmation printed after it has already been skipped — the same miss as the preamble, one step
-  // lower. The only assertion that catches that is position.
-  const confirmAt = push.search(/[Cc]onfirm the resolved/)
+  // ORDER, not mere presence. Each of these commands lives in a fenced block an agent may run as one
+  // call, so a guard printed after the command it guards has already been skipped. Position is the
+  // only assertion that catches that — and the imperative must be the LAST mention, because a passing
+  // aside earlier in the step ("the target was confirmed in the preamble") would satisfy a first-match
+  // search while the real confirmation sat below the push.
+  const confirmAt = push.lastIndexOf('confirm the resolved upstream target')
   const pushAt = push.indexOf('git push -u origin')
+  const commitAt = push.indexOf('git commit')
+  const diffAt = push.indexOf('git diff')
+  // Per kind, off the table row itself. Step 6 says "append" three times, so a bare /append/ stays
+  // green when the pattern row alone is reverted to `cp` — which IS the destructive bug.
+  const row = (needle) => (push.split('\n').find((l) => l.startsWith('|') && l.includes(needle)) || '')
+  const patternRow = row('patterns/<domain>/catalog.md')
+  const lessonRow = row('lessons/<lens>.md')
+  const goldRow = row('playbook-seeds/gold/')
   return [
     [pushAt !== -1, 'the push belongs in this step'],
     [confirmAt !== -1,
@@ -728,14 +760,24 @@ check('upstream-submit.md — step 6 confirms before it pushes, and places a row
       'and it must come BEFORE the push command, not after it'],
     [/MasterDevs\/masterclaude/.test(push),
       'and it must name the default, since that is what a run silently resolves to'],
-    // Step 2 stages a pattern as a one-row fragment. If step 6 only knows `cp`, following both
-    // literally replaces the shipped catalog with that single row and commits the deletion — so
-    // mode 6's every run would open a destructive pull request.
-    [/append/i.test(push), 'a row-shaped subject must be appended, never copied over its destination'],
-    [/catalog\.md/.test(push) && /lessons\/<lens>\.md/.test(push),
-      'and both row destinations must be named here, not only in the staging step'],
-    [/no deletions/i.test(push),
-      'and the diff must be checked for deletions before the commit — that is where a clobber shows'],
+    // Step 2 stages a pattern as a one-row fragment. If placement only knows `cp`, following both
+    // literally replaces a shipped catalog with that single row and commits the deletion — so every
+    // run of playbook mode 6 would open a destructive pull request.
+    [/\*\*append\*\*/.test(patternRow) && !/`cp`/.test(patternRow),
+      'a pattern row must be appended to its catalog, never copied over it'],
+    [/\*\*append\*\*/.test(lessonRow) && !/`cp`/.test(lessonRow),
+      'and a lesson entry appended to its file'],
+    [/`cp`/.test(goldRow), 'only a new gold entry is a copy — that file does not exist upstream yet'],
+    // The guard is the command, not the sentence. Dropping `git diff` while leaving prose about
+    // deletions reads as careful and inspects nothing.
+    [diffAt !== -1 && commitAt !== -1 && diffAt < commitAt,
+      'the placement must be inspected with git diff BEFORE the commit — that is where a clobber shows'],
+    [/no deletions/i.test(push), 'and the prompt must say what a deletion in it means'],
+    // Scoped to command lines. `git add -A` is also named in the prose that explains how a clobber
+    // gets committed, and that mention should stay — it is the reason for the rule.
+    [push.split('\n').filter((l) => l.trimStart().startsWith('git add'))
+      .every((l) => !/-A\b/.test(l)),
+      'the commit must name its destination — `git add -A` sweeps in editing leftovers'],
   ]
 })
 
@@ -850,6 +892,14 @@ check('playbook/SKILL.md — six modes, the gold lane fifth and upstream sixth',
     [/upstream/i.test(modes[5] || ''),
       `the sixth must send a promoted row upstream — got '${modes[5] || '(none)'}'`],
     [/gold\.mjs --validate/.test(text), 'mode 5 must shell out to the one detector'],
+    // The promote format is prose here and code in playbook.mjs, so the column name can drift — and
+    // did: this file said `| Name |` while every shipped catalog and the header the script writes said
+    // `| Pattern |`. Cross-checked against the script so the two cannot separate again.
+    [text.includes('| Pattern | Intent | Reach for when | Skip when |'),
+      'the promoted-pattern header must match the shipped catalogs, column names included'],
+    [fs.readFileSync(path.join(ROOT, 'plugins/masterdevs/scripts/playbook.mjs'), 'utf8')
+      .includes('| Pattern | Intent | Reach for when | Skip when |'),
+      'and must be the same header playbook.mjs writes when it creates the learned section'],
     // The advice inverts between a stale entry and one this checkout simply cannot judge, so mode 5
     // has to name every code the validator can print. A code it never mentions is a case where it
     // guesses — and guessing towards retirement is how a curated example is lost.

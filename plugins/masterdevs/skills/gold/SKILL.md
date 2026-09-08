@@ -172,14 +172,24 @@ Then finish deterministically, in this order:
 
 1. Write the single entry file at the destination question's target — for **public**, that is this
    machine's local lane.
-2. Reindex **the lane you just wrote**, naming that lane's own root — a different flag per lane:
+2. Reindex **the lane you just wrote — that one lane and no other.** Which flag pins it depends on
+   which lane it is, so run exactly one of these, never both:
+
+   If you wrote the local lane (**local**, and the kept copy on the **public** path):
 
    ```
-   # local lane
    node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --reindex --scope local --playbook-dir "$PLAYBOOK_DIR"
-   # repo lane
+   ```
+
+   If you wrote the repository's lane (**team**):
+
+   ```
    node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --reindex --scope repo --repo-root "$REPO_ROOT"
    ```
+
+   Reindexing the repo lane **creates it if it is absent**, so running the second command after a local
+   capture leaves an empty `.masterdevs/gold/INDEX.md` in the user's checkout — an untracked directory
+   they then have to notice and delete. One lane was written; reindex that one.
 
 3. Validate **the same lane**, and pass `--repo-root` as well:
 

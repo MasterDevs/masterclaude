@@ -585,7 +585,10 @@ const doReindex = () => {
   console.log(`\nGold lane — reindexed ${count} ${entryWord(count)} in the ${scope} lane`)
   console.log(`${target}\n`)
   for (const f of files) console.log(`  wrote ${path.basename(f.file)}`)
-  console.log(`\n  Check it with: node gold.mjs --validate --gold-dir "${target}"\n`)
+  // --repo-root belongs in the hint: naming a lane with --gold-dir deliberately stops the script
+  // guessing which repository to judge the anchors against, so without it every anchor is skipped as
+  // belonging elsewhere and a rotted entry exits 0. A hint that omits it teaches the silent pass.
+  console.log(`\n  Check it with: node gold.mjs --validate --gold-dir "${target}" --repo-root "<repo>"\n`)
   process.exit(0)
 }
 

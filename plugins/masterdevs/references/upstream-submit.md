@@ -187,14 +187,26 @@ the same way. Append; never overwrite a destination that already exists.
 Then prove what you placed, before committing:
 
 ```
-git status --short             # a gold entry: one ADDED file. a row: one MODIFIED file, nothing else
-git diff                       # must show added lines only — no deletions, no rewritten header
-git add -A && git commit -m "<conventional commit>"
+git status --short      # a gold entry: one ADDED file. a row: one MODIFIED file, and nothing else
+git diff                # must show added lines only — no deletions, no rewritten header
 ```
 
-A deletion in that diff means the staged fragment overwrote its destination. Stop and place it again.
-The diff the user approved in step 4 was the **staged** content, so this is the only point in the flow
-where a clobbered catalog would be visible to anyone.
+**Read that output before committing anything.** A deletion means the staged fragment overwrote its
+destination instead of being added to it: stop, undo it, and place it again. An unexpected untracked
+file means an intermediate left over from editing a row is still lying in the clone. The diff the user
+approved in step 4 was the **staged** content, so this is the only point in the flow where a clobbered
+catalog is visible to anyone — and a guard written *below* the command it guards has already been
+skipped, which is why it is above this one.
+
+Only then commit, naming the destination rather than `-A`, so a leftover scratch file cannot ride along:
+
+```
+git add <its place in the clone> && git commit -m "<conventional commit>"
+```
+
+A merged contribution reaches an existing Playbook only when `playbook-seeds/VERSION` is bumped, and
+**the maintainer owns that bump** — do not include it, and do not treat its absence as something to
+fix in the pull request.
 
 **Now confirm the resolved upstream target back to the user and take an explicit yes — before running
 the push below.** State the `owner/repo`. `--upstream` defaults to `MasterDevs/masterclaude`, so a run
