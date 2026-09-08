@@ -62,7 +62,7 @@ gets scrubbed, and whether the flow ends on this machine or in a pull request.
 
 | Answer | Where it lands | Frontmatter | Reviewed by |
 |---|---|---|---|
-| **public** | this machine's lane, **and** a pull request to the plugin repo | local copy `scope: local`, submitted copy `source: contributed` | a maintainer, on GitHub |
+| **public** | this machine's lane, **and** a pull request to the plugin repo | the kept copy `scope: local`, `source: local`; the submitted copy `scope: seeds`, `source: contributed` | a maintainer, on GitHub |
 | **team** | `$REPO_ROOT/.masterdevs/gold/<id>.md` | `scope: repo`, `source: repo` | your repository's own review |
 | **local** | `$PLAYBOOK_DIR/gold/<id>.md` | `scope: local`, `source: local` | nobody — it is yours |
 
@@ -96,9 +96,9 @@ same example under a new id is a duplicate the resolver will keep forever.
 
 | From → to | What to do |
 |---|---|
-| local → team | Copy to `$REPO_ROOT/.masterdevs/gold/<id>.md`, set `scope: repo` and `source: repo`, reindex and validate that lane, then tell the user to commit it. |
+| local → team | Copy to `$REPO_ROOT/.masterdevs/gold/<id>.md`, set `scope: repo` and `source: repo`, then run the **same two commands** the write step below ends with — `--reindex --scope repo --playbook-dir "$PLAYBOOK_DIR"` then `--validate --gold-dir "$REPO_ROOT/.masterdevs/gold"`. Both flags are required here for the same reason they are required there. Then tell the user to commit it. |
 | local or team → public | Leave the entry where it is and submit a scrubbed **copy**, exactly as the public answer below does. |
-| team → local | Copy to `$PLAYBOOK_DIR/gold/<id>.md`, set `scope: local` and `source: local`. Warn that internal names captured for team scope are now on a lane shared with every repository this machine visits. |
+| team → local | Copy to `$PLAYBOOK_DIR/gold/<id>.md`, set `scope: local` and `source: local`, then reindex and validate with `--scope local`, same flags. Warn that internal names captured for team scope are now on a lane shared with every repository this machine visits. |
 
 This is why capture and contribution are one command rather than two: the second command existed only
 to answer a question this one already asks.

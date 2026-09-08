@@ -639,6 +639,28 @@ check('gold/SKILL.md — six questions, each with a recommendation the user acce
   ]
 })
 
+// The destination answer decides two frontmatter fields, and the public answer decides them twice —
+// once for the copy the user keeps and once for the copy that is submitted. A table that names only
+// one of each pair leaves capture to guess, and the validator only sees the guess after it is written.
+// Moving an entry between lanes runs the same two commands capture ends with, and needs the same two
+// explicit flags for the same reason: without them the reindex writes one lane while the validation
+// reads another, and the move reports success over an entry nobody checked.
+check('gold/SKILL.md — the destination table and the lane moves both name their lane explicitly', () => {
+  const text = skill('gold/SKILL.md')
+  const table = text.slice(text.indexOf('### 1.'), text.indexOf('### 2.'))
+  const move = table.slice(table.indexOf('| From \u2192 to |'))
+  const publicRow = table.split('\n').find((l) => l.includes('**public**')) || ''
+  const localToTeam = move.split('\n').find((l) => l.includes('local \u2192 team')) || ''
+  return [
+    [/scope: local[\s\S]{0,40}source: local/.test(publicRow),
+      'the public answer must set both fields on the copy the user keeps'],
+    [/scope: seeds[\s\S]{0,40}source: contributed/.test(publicRow),
+      'and both on the copy that is submitted — the shipped lane is scope: seeds'],
+    [/--playbook-dir/.test(localToTeam) && /--gold-dir/.test(localToTeam),
+      'a lane move must name the lane on both commands, exactly as the write step does'],
+  ]
+})
+
 check('upstream-submit.md — throwaway clone, no inline leak regex, main named as forbidden', () => {
   const text = reference('upstream-submit.md')
   return [
@@ -651,6 +673,54 @@ check('upstream-submit.md — throwaway clone, no inline leak regex, main named 
     [/git switch main/.test(text) && /git checkout main/.test(text),
       'both ways of checking out main must be listed as forbidden'],
     [/push to a default branch/.test(text), 'pushing a default branch must be listed as forbidden'],
+  ]
+})
+
+// Two callers, two subject shapes. A gold entry is a whole file; a pattern or lesson is one row inside a
+// shared catalog. Staging the catalog would submit every other row with it, so the staging step has to
+// say where each kind lives and that a row is extracted rather than copied — otherwise mode 6 has no
+// executable path and the flow reads as gold-only.
+check('upstream-submit.md — staging covers rows, not just whole files', () => {
+  const text = reference('upstream-submit.md')
+  const stage = text.slice(text.indexOf('## 2.'), text.indexOf('## 3.'))
+  return [
+    // Anchored on the source path in the user's own Playbook, not the destination inside the clone —
+    // the destination is named a few lines later, and matching that would let this pass while the
+    // staging step still said nothing about where a pattern is read FROM.
+    [/\$PLAYBOOK_DIR\/patterns\/<domain>\/catalog\.md/.test(stage),
+      'the pattern subject location in the user\'s Playbook must be named'],
+    [/\$PLAYBOOK_DIR\/lessons\/<lens>\.md/.test(stage), 'and the lesson subject location'],
+    [/rows, not files/.test(stage),
+      'and it must say so plainly — staging the whole catalog submits rows nobody chose to share'],
+  ]
+})
+
+// The confirmation has to live where the push does. It used to sit only in the preamble, above step 1 —
+// and gold enters this reference "from step 2 onward", so the one caller that reaches a public push was
+// the one caller that never read it. A default that silently resolves to the production repository is
+// exactly the outward-facing action that needs a yes.
+check('upstream-submit.md — the upstream target is confirmed at the push, not only where it is described', () => {
+  const text = reference('upstream-submit.md')
+  const push = text.slice(text.indexOf('## 6.'), text.indexOf('## 7.'))
+  return [
+    [/git push -u origin/.test(push), 'the push belongs in this step'],
+    [/[Cc]onfirm the resolved/.test(push) && /before running that push/.test(push),
+      'the target must be confirmed here, where the push is — the preamble is skipped by gold'],
+    [/MasterDevs\/masterclaude/.test(push),
+      'and it must name the default, since that is what a run silently resolves to'],
+  ]
+})
+
+// The scrub header describes the flow, and describing it wrong inverts the guarantee: rewriting inside
+// the pushable clone means unscrubbed content is already there. The rewrite happens on the staged copy,
+// before any clone exists.
+check('scrub-patterns.txt — the header names the staged copy, not the clone', () => {
+  const text = reference('scrub-patterns.txt')
+  const head = text.slice(0, text.indexOf('\n\n'))
+  return [
+    [/\$WORK\/submit/.test(head), 'the rewrite target must be the staged copy'],
+    [!/temp clone's copy/.test(head), 'and must not read as rewriting inside the pushable clone'],
+    [/BEFORE the throwaway clone/i.test(text), 'the ordering must be stated, not implied'],
   ]
 })
 

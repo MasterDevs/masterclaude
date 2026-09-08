@@ -35,12 +35,29 @@ Scrubbing operates on a **copy**. The user's own lane is theirs; a submission is
 Stage the copies somewhere disposable and keep a list of exactly what is being submitted — the gate in
 step 4 needs that list, and step 6 copies from it into the clone:
 
+Where the subject lives, and what "a copy" means for each:
+
+| Subject | Source | Staged as |
+|---|---|---|
+| gold entry | `$PLAYBOOK_DIR/gold/<id>.md` — a whole file | copy the file |
+| pattern | one **row** in `$PLAYBOOK_DIR/patterns/<domain>/catalog.md` | write that row into a new file, under the same `\| Name \| Intent \| Reach for when \| Skip when \|` header |
+| lesson | one **entry** in `$PLAYBOOK_DIR/lessons/<lens>.md` | write that entry into a new file |
+
+A pattern and a lesson are rows, not files, so there is nothing to `cp` — extract the one row and stage
+it alone. Staging the whole catalog would submit every other row with it, and the gate would then be
+inspecting rows nobody chose to share.
+
 ```
 WORK="$(mktemp -d)"
 mkdir -p "$WORK/submit"
-cp "<the source file>" "$WORK/submit/<name>.md"
+# gold: copy the file. pattern/lesson: write the single extracted row into this path instead.
+cp "$PLAYBOOK_DIR/gold/<id>.md" "$WORK/submit/<id>.md"
 ls "$WORK"/submit/* > "$WORK/submit.txt"                      # one absolute path per line
 ```
+
+Step 6 copies each staged file to the place its kind belongs in the clone:
+`plugins/masterdevs/playbook-seeds/gold/<id>.md`, or the matching
+`playbook-seeds/patterns/<domain>/catalog.md` / `playbook-seeds/lessons/<lens>.md`.
 
 ## 3. Build the pattern list, then scrub
 
@@ -152,6 +169,12 @@ cp "$WORK/submit/<name>.md" <its place in the clone>    # the gated copies, noth
 git add -A && git commit -m "<conventional commit>"
 git push -u origin <type>/<slug>
 ```
+
+**Confirm the resolved upstream target back to the user before running that push.** State the
+`owner/repo` you are about to push to and take a yes. `--upstream` defaults to
+`MasterDevs/masterclaude`, so a run the user believed was a rehearsal against their own fork reaches
+the production repository unless this confirmation happens here — at the push, not only where the
+default was described.
 
 Only files listed in `$WORK/submit.txt` may be copied in. Anything else has not been through the gate.
 

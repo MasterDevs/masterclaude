@@ -1,9 +1,12 @@
 # Scrub patterns — pattern CLASSES only, one POSIX extended regex per line.
 #
 # Read by references/upstream-submit.md, on the path out of this machine only. Two jobs, same list:
-#   1. rewrite  — replace each match in the temp clone's copy with a generic placeholder
-#   2. gate     — after rewriting, re-read the scrubbed copies and REFUSE to push on any hit
-#                 (the files, not the git index — nothing is staged when the gate runs)
+#   1. rewrite  — replace each match in the STAGED copy under $WORK/submit with a placeholder
+#   2. gate     — re-read those staged copies and REFUSE to push on any hit
+#                 (the files, not the git index — nothing is staged in git when the gate runs)
+#
+# Both happen BEFORE the throwaway clone exists. Only files that already passed the gate are copied
+# into it. Rewriting inside the clone instead would put unscrubbed content somewhere pushable.
 # The rewrite is best-effort; the gate is the guarantee.
 #
 # This file holds only SHAPES. Your own organisation, repository and module names cannot ship in a
