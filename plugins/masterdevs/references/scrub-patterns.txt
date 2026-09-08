@@ -1,6 +1,6 @@
 # Scrub patterns — pattern CLASSES only, one POSIX extended regex per line.
 #
-# Read by /masterdevs:contribute for the upstream path only. Two jobs, same list:
+# Read by references/upstream-submit.md, on the path out of this machine only. Two jobs, same list:
 #   1. rewrite  — replace each match in the temp clone's copy with a generic placeholder
 #   2. gate     — after rewriting, re-read the scrubbed copies and REFUSE to push on any hit
 #                 (the files, not the git index — nothing is staged when the gate runs)
@@ -11,7 +11,7 @@
 #
 #     $PLAYBOOK_DIR/scrub-patterns.local.txt
 #
-# ...which /masterdevs:contribute reads in addition to this file when it exists.
+# ...which the upstream flow reads in addition to this file when it exists.
 #
 # Note on the key shapes below: the vendor prefixes are written with a bracketed letter
 # (A[K]IA rather than AKIA). The regex still matches a real key, but the line itself no longer
@@ -42,7 +42,7 @@ eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}
 #     $PLAYBOOK_DIR/scrub-patterns.local.txt
 #     (ENG|PROJ|OPS)-[0-9]+
 #
-# /masterdevs:contribute asks about tracker ids when that file carries no such line.
+# The upstream flow asks about tracker ids when that file carries no such line.
 
 # ── Internal network locations ────────────────────────────────────────────────
 # The suffix has to END the hostname. Matched loosely, `.local` also hits `settings.local.json` and

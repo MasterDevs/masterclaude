@@ -95,6 +95,15 @@ commonest cause of a red line here.
 This mode **shells out to `gold.mjs`** and is a presentation layer over that one detector. It never
 re-implements rot detection, never runs `scripts/playbook.mjs`, and never stages a candidate.
 
+### 6. Send a promoted pattern or lesson upstream (additive)
+
+A learned row is worth more than one machine. When the user wants one shared, follow
+`${CLAUDE_PLUGIN_ROOT}/references/upstream-submit.md` — the same mechanism `/masterdevs:gold` uses for
+its **public** destination, so the scrub gate and the throwaway-clone rule are written once.
+
+Only a **promoted** row is eligible. A candidate has not passed the gate, and passing it is what modes 1
+and 2 above are for.
+
 ## Rules
 - **Never** promote without user confirmation unless a candidate has genuinely recurred ≥2 (and even then, show it before writing).
 - **Never** modify the shipped seeds under `${CLAUDE_PLUGIN_ROOT}` — only the data-dir Playbook.

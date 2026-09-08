@@ -59,8 +59,7 @@ Priority hierarchy governing all generated code: **security > reliability/correc
 | `/masterdevs:review` | Just the review panel, over your current diff. Doesn't need a plan or a loop. |
 | `/masterdevs:playbook` | Review, promote, or prune staged pattern/lesson candidates — the only gate into promoted knowledge. |
 | `/masterdevs:roster` | Register a specialist reviewer (any installed plugin's agent) into the Review Panel. |
-| `/masterdevs:gold` | Capture a curated example of good code, an abstraction, or a design into the Playbook's gold lane — the only way entries get there. |
-| `/masterdevs:contribute` | Submit a gold entry, pattern, or lesson upstream as a pull request, or promote a local entry to your team's repo scope. |
+| `/masterdevs:gold` | Capture a curated example of good code, an abstraction, or a design — and send it to the public repo, your team's repo, or just this machine. The only way entries get there. |
 
 The middle three are the loop's phases as standalone entry points. `/masterdevs:feature` is the front
 door and the one to reach for by default; the others exist for when you want one phase without the rest —
@@ -182,7 +181,9 @@ A repository lane is committed alongside your code, so it can go stale like any 
 
 Two things make this work on a runner. `--gold-dir` names your lane so nothing resolves from the machine's Playbook, and `--repo-root .` says which checkout to judge the anchors against. **Fetch the full history** (`fetch-depth: 0` on `actions/checkout`) — a shallow clone will not contain the commits your entries were captured at, so every anchor reads as unchecked and the step passes without proving anything.
 
-References run **gold → pattern only** — an entry names the patterns it demonstrates, but a catalog never points back, so a row stays readable on its own. `/masterdevs:contribute` sends an entry (or a promoted pattern or lesson) upstream as a pull request, or promotes a local one to your team's repository scope.
+References run **gold → pattern only** — an entry names the patterns it demonstrates, but a catalog never points back, so a row stays readable on its own.
+
+**Capture and contribution are one command.** `/masterdevs:gold` asks where an example goes as its *first* question — a pull request to this repo, your team's `.masterdevs/gold/`, or just this machine — because whether something is worth sharing is what a person knows at the moment they capture it, and asking later means asking never. The public answer scrubs a copy behind a gate that refuses on any hit and opens the pull request from a throwaway clone, so no checkout you work in is ever touched. `/masterdevs:playbook` mode 6 sends a promoted pattern or lesson the same way.
 
 The Playbook is **one store shared by every repo you run against** (22 worktrees feed this one), so a pattern earned in the backend is loaded by the next frontend run whose domain matches. Domain and lens routing keeps it relevant rather than noisy.
 

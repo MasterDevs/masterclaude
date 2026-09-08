@@ -609,12 +609,28 @@ check('index split — a domain past the line threshold spills to its own file',
 // before (three shipped versions of skill-side work sat dormant for a day while everything looked
 // healthy). So the contract is asserted where it can be: in the text.
 const skill = (rel) => fs.readFileSync(path.join(ROOT, 'plugins/masterdevs/skills', rel), 'utf8')
+const reference = (rel) => fs.readFileSync(path.join(ROOT, 'plugins/masterdevs/references', rel), 'utf8')
 
 check('gold/SKILL.md — six questions, each with a recommendation the user accepts with y', () => {
   const text = skill('gold/SKILL.md')
   const marked = text.split('\n').filter((l) => l.includes('[recommend:'))
   return [
     [marked.length === 6, `the question budget is six — found ${marked.length} '[recommend:' markers`],
+    // Capture and contribution are one command because the decision is one decision. If the
+    // destination stops being asked FIRST, the flow silently becomes capture-only again: the answer
+    // routes the frontmatter, the scrub, and whether anything leaves the machine at all.
+    [/\[recommend: <public\|team\|local>\]/.test(marked[0] || ''),
+      `question 1 must be the destination, offering public/team/local — got: ${marked[0] || '(none)'}`],
+    [/references\/upstream-submit\.md/.test(text),
+      'the public answer must delegate to the shared upstream mechanism, not restate it'],
+    [/six-question budget/.test(text),
+      "the upstream path's own approval gates must be excluded from the question budget"],
+    // The standalone contribute command was the only way an already-captured entry could leave the
+    // machine. Consolidating it away without this path would strand every entry captured as local.
+    [/skip questions 2 through 6/i.test(text),
+      'an entry that already exists must reach the destination question without being re-captured'],
+    [/duplicate/.test(text),
+      'and the prompt must say why re-capturing is wrong — a second id for one example never expires'],
     [marked.every((l) => l.includes('y to accept')),
       'every recommendation must be acceptable with a bare y, or the budget is six interviews'],
     [/never asked/.test(text), 'the derived-never-asked list must be stated'],
@@ -623,8 +639,8 @@ check('gold/SKILL.md — six questions, each with a recommendation the user acce
   ]
 })
 
-check('contribute/SKILL.md — throwaway clone, no inline leak regex, main named as forbidden', () => {
-  const text = skill('contribute/SKILL.md')
+check('upstream-submit.md — throwaway clone, no inline leak regex, main named as forbidden', () => {
+  const text = reference('upstream-submit.md')
   return [
     [!/AKIA/.test(text), 'no key-shaped regex inline — the pattern classes live in scrub-patterns.txt'],
     [/references\/scrub-patterns\.txt/.test(text), 'the shipped pattern file must be named as a source'],
@@ -643,9 +659,9 @@ check('contribute/SKILL.md — throwaway clone, no inline leak regex, main named
 // three things that make a clean result mean something — a non-empty pattern list, a non-empty file
 // list, and a positive control proving the patterns can fire — plus the exit-code reading that keeps a
 // grep ERROR from being mistaken for a grep MISS.
-check('contribute/SKILL.md — the scrub gate cannot pass by inspecting nothing', () => {
-  const text = skill('contribute/SKILL.md')
-  const gate = text.slice(text.indexOf('### 4.'), text.indexOf('### 5.'))
+check('upstream-submit.md — the scrub gate cannot pass by inspecting nothing', () => {
+  const text = reference('upstream-submit.md')
+  const gate = text.slice(text.indexOf('## 4.'), text.indexOf('## 5.'))
   return [
     [/test -s "\$PATTERNS"/.test(gate), 'the gate must refuse an empty pattern list'],
     [/test -s "\$WORK\/submit\.txt"/.test(gate), 'the gate must refuse an empty file list'],
@@ -657,6 +673,23 @@ check('contribute/SKILL.md — the scrub gate cannot pass by inspecting nothing'
       'a grep error must be a refusal — treating any non-zero as clean is the vacuous pass again'],
     [/git grep/.test(gate) && /tracked/.test(gate),
       'the prompt must say why git grep is the wrong tool here, or someone will put it back'],
+  ]
+})
+
+// The upstream mechanism was lifted out of a second skill so it exists once. Both callers have to
+// actually reach it, and neither may grow its own copy of the parts that matter.
+check('one upstream mechanism — both callers delegate, neither restates it', () => {
+  const gold = skill('gold/SKILL.md')
+  const playbook = skill('playbook/SKILL.md')
+  const ref = 'references/upstream-submit.md'
+  const restates = (t) => /mktemp -d/.test(t) || /git clone --depth 1/.test(t) || /\$PATTERNS/.test(t)
+  return [
+    [gold.includes(ref), 'the gold skill must point at the shared mechanism'],
+    [playbook.includes(ref), 'the playbook skill must point at the shared mechanism'],
+    [!restates(gold), 'and the gold skill must not carry its own copy of the clone or gate commands'],
+    [!restates(playbook), 'nor the playbook skill'],
+    [!fs.existsSync(path.join(ROOT, 'plugins/masterdevs/skills/contribute')),
+      'the standalone contribute skill is consolidated away — a second entry point would drift'],
   ]
 })
 
@@ -706,12 +739,14 @@ check('scrub patterns — real leaks match, ordinary technical prose does not', 
   ]
 })
 
-check('playbook/SKILL.md — five modes, the fifth being the gold lane', () => {
+check('playbook/SKILL.md — six modes, the gold lane fifth and upstream sixth', () => {
   const text = skill('playbook/SKILL.md')
   const modes = text.split('\n').filter((l) => l.startsWith('### '))
   return [
-    [modes.length === 5, `expected five mode headings — found ${modes.length}`],
+    [modes.length === 6, `expected six mode headings — found ${modes.length}`],
     [/gold/i.test(modes[4] || ''), `the fifth mode must be the gold lane — got '${modes[4] || '(none)'}'`],
+    [/upstream/i.test(modes[5] || ''),
+      `the sixth must send a promoted row upstream — got '${modes[5] || '(none)'}'`],
     [/gold\.mjs --validate/.test(text), 'mode 5 must shell out to the one detector'],
     // The advice inverts between a stale entry and one this checkout simply cannot judge, so mode 5
     // has to name every code the validator can print. A code it never mentions is a case where it

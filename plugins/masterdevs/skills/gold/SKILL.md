@@ -1,13 +1,17 @@
 ---
 name: gold
-description: "Capture a curated example of good code, a good abstraction, or a good design into the Playbook's gold lane — the third lane beside pattern catalogs and reviewer lessons. This skill is the ONLY writer of that lane: agents read entries and cite their ids, and no workflow step ever stages one. Six questions, each with a recommended answer you accept with 'y'; everything else is derived from the repo. Invoke as /masterdevs:gold."
+description: "Capture a curated example of good code, a good abstraction, or a good design into the Playbook's gold lane — the third lane beside pattern catalogs and reviewer lessons — and send it wherever it belongs: the public plugin repo as a pull request, your team's repository, or just this machine. This skill is the ONLY writer of that lane: agents read entries and cite their ids, and no workflow step ever stages one. Six questions, the first being where it goes, each with a recommended answer you accept with 'y'; everything else is derived from the repo. Invoke as /masterdevs:gold."
 ---
 
-# /masterdevs:gold — capture one example worth copying
+# /masterdevs:gold — capture one example worth copying, and send it where it belongs
 
 Pattern catalogs say what shape to reach for. Lessons say what trap to avoid. Neither shows an agent a
 piece of code a human actually liked. That is what this captures — one entry, one example, live the
 moment it is written.
+
+Capture and contribution are **one command**, because they are one decision. Whether an example is
+worth sharing is the thing a person knows at the moment they capture it, and asking it later means
+asking it never. So the first question is where it goes, and the answer routes everything after it.
 
 ## Step 0 — Resolve paths (do this first)
 
@@ -35,7 +39,7 @@ Exactly **six** questions may be asked. Every other frontmatter field is **deriv
 | `id` | kebab-case of the title |
 | `language` | the anchor file's extension |
 | `lenses` | the domain plus what the example demonstrates |
-| `scope`, `source` | the audience answer (question 1) |
+| `scope`, `source` | the destination answer (question 1) |
 | each anchor's `sha` | `git log -1 --format=%H -- <path>` |
 | `provenance` | who captured it and when |
 | the excerpt itself | read out of the anchor file |
@@ -51,31 +55,67 @@ is what turns a two-minute capture into an interview.
 
 ## The six questions
 
-### 1. Audience — who is this entry for? `[recommend: <local|team>]` — y to accept, or type an override
+### 1. Destination — where does this go? `[recommend: <public|team|local>]` — y to accept, or type an override
+
+Ask this **first**, before anything else is settled. It decides the frontmatter, whether the excerpt
+gets scrubbed, and whether the flow ends on this machine or in a pull request.
+
+| Answer | Where it lands | Frontmatter | Reviewed by |
+|---|---|---|---|
+| **public** | this machine's lane, **and** a pull request to the plugin repo | local copy `scope: local`, submitted copy `source: contributed` | a maintainer, on GitHub |
+| **team** | `$REPO_ROOT/.masterdevs/gold/<id>.md` | `scope: repo`, `source: repo` | your repository's own review |
+| **local** | `$PLAYBOOK_DIR/gold/<id>.md` | `scope: local`, `source: local` | nobody — it is yours |
 
 Decide the recommendation by **three ordered checks, first match wins**, and print which one fired so
 there is no hidden judgment call:
 
-1. `git remote -v` prints nothing, **or** `git shortlog -sn HEAD | wc -l` is `1` → recommend **local**.
-   (Nobody else is reading this repo, so a team lane would have an audience of one.)
-2. The excerpt references identifiers defined in this repo — a module, type, or function name
-   `git grep` finds only here → recommend **team**. It only reads correctly next to this code.
-3. Otherwise → recommend **local**, plus one line noting it looks worth sharing beyond this machine
-   and can be submitted later with `/masterdevs:contribute`.
+1. The excerpt references identifiers `git grep` finds **only in this repo** — a module, type, or
+   function defined here → recommend **team**. It only reads correctly next to this code, and it cannot
+   be genericized into anything a stranger could learn from.
+2. The excerpt is **self-contained**: every identifier it uses is a language builtin, a public library,
+   or defined inside the excerpt itself → recommend **public**. It would teach any user of this plugin,
+   which is the only reason the public lane exists.
+3. Otherwise → recommend **local**, plus one line saying the destination can be revisited later without
+   re-capturing anything (see below).
 
-There are exactly **two** capture targets:
+**One downgrade, applied after the checks.** If the recommendation came out **team** but `git remote -v`
+prints nothing, or `git shortlog -sn HEAD | wc -l` is `1`, recommend **local** instead and say why: a
+team lane in a repository nobody else reads has an audience of one.
 
-| Answer | File | Frontmatter |
-|---|---|---|
-| local | `$PLAYBOOK_DIR/gold/<id>.md` | `scope: local`, `source: local` |
-| team | `$REPO_ROOT/.masterdevs/gold/<id>.md` | `scope: repo`, `source: repo` |
+Capture **never** writes `playbook-seeds/gold` directly. The shipped lane is reached only by a
+maintainer merging a pull request — which is what **public** opens.
 
-`$REPO_ROOT/.masterdevs/` is the same per-repo convention as `.masterdevs/preflight.json`. Entry files
-are **flat** in the lane directory — no domain subdirectory; the domain lives in frontmatter and the
-generated index groups by it.
+#### An entry that already exists — ask question 1 and nothing else
 
-Capture **never** targets `playbook-seeds/gold` or upstream. Those are reached only by a maintainer's
-own checkout and by `/masterdevs:contribute` respectively.
+When the subject is an entry already in a lane — the user names an id, or says "send that one upstream"
+— there is nothing to capture. **Ask the destination question and skip questions 2 through 6.** Resolve
+an ambiguous id with `node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --list`.
+
+Moving an entry is a copy plus a frontmatter change, never a re-capture: a second entry describing the
+same example under a new id is a duplicate the resolver will keep forever.
+
+| From → to | What to do |
+|---|---|
+| local → team | Copy to `$REPO_ROOT/.masterdevs/gold/<id>.md`, set `scope: repo` and `source: repo`, reindex and validate that lane, then tell the user to commit it. |
+| local or team → public | Leave the entry where it is and submit a scrubbed **copy**, exactly as the public answer below does. |
+| team → local | Copy to `$PLAYBOOK_DIR/gold/<id>.md`, set `scope: local` and `source: local`. Warn that internal names captured for team scope are now on a lane shared with every repository this machine visits. |
+
+This is why capture and contribution are one command rather than two: the second command existed only
+to answer a question this one already asks.
+
+#### What each answer does after the entry is written
+
+- **local** — done. Report and stop.
+- **team** — the entry is already in the repository's lane; tell the user to commit it with their own
+  code. **Real internal names stay verbatim**, which is the entire point of team scope. Nothing is
+  scrubbed, because nothing is leaving.
+- **public** — the entry is written to **this machine's lane first**, so the user keeps their own copy,
+  and then a scrubbed **copy** is submitted. Follow
+  `${CLAUDE_PLUGIN_ROOT}/references/upstream-submit.md` from step 2 onward and do not restate it here.
+
+That reference carries its own approval gates — the tracker-id question, the full scrubbed diff, and the
+confirmed upstream target. **Those are not part of the six-question budget.** Pushing to a public
+repository is an outward-facing, hard-to-reverse action, so it is gated separately and on purpose.
 
 ### 2. Kind and domain `[recommend: <kind> / <domain>]` — y to accept, or type an override
 
@@ -130,7 +170,8 @@ symbol.
 
 Then finish deterministically, in this order:
 
-1. Write the single entry file at the chosen target.
+1. Write the single entry file at the destination question's target — for **public**, that is this
+   machine's local lane.
 2. Reindex **the lane you just wrote**, and pass `--playbook-dir` every time:
 
    ```
@@ -153,7 +194,9 @@ If validation reports anything, **fix the entry and re-run before reporting succ
 authoritative — that is the mechanism that stops this prose template drifting from the schema, and it is
 the reason none of the schema is restated here.
 
-Report in one line: the id, the scope it landed in, and the anchors it carries.
+Report in one line: the id, the lane it landed in, and the anchors it carries. On the **public** path,
+add the pull request URL — and say plainly that a maintainer's review, not this command, decides whether
+it ships.
 
 ## Rules
 
@@ -167,5 +210,8 @@ Report in one line: the id, the scope it landed in, and the anchors it carries.
   `/masterdevs:playbook` treats as security-relevant.
 - **Refuse to capture an excerpt containing a credential, token, private key, or key-shaped string.**
   Say what you found and ask for a different excerpt; do not redact and proceed.
-- A **team-scope** entry is committed to the repo, so real internal names in it are intentional and stay.
-  Scrubbing happens only at submission time, in `/masterdevs:contribute`.
+- A **team-scope** entry is committed to the repo, so real internal names in it are intentional and
+  stay. Scrubbing happens only on the **public** path, on a copy, per
+  `${CLAUDE_PLUGIN_ROOT}/references/upstream-submit.md`.
+- **The public path never operates in the user's checkout.** It clones, branches, pushes and deletes.
+  That reference owns the rule; do not reimplement any of it here.

@@ -59,8 +59,7 @@ Each phase runs in a **fresh context** seeded only by the previous phase's terse
 | `/masterdevs:review` | Just the review panel over your current diff. No plan or loop needed. |
 | `/masterdevs:playbook` | Curate what the agents have learned — promote, reject, or prune. |
 | `/masterdevs:roster` | Register a specialist reviewer into the review panel. |
-| `/masterdevs:gold` | Capture a curated example of good code, an abstraction, or a design into the Playbook's gold lane — the only way entries get there. |
-| `/masterdevs:contribute` | Submit a gold entry, pattern, or lesson upstream as a pull request, or promote a local entry to your team's repo scope. |
+| `/masterdevs:gold` | Capture a curated example of good code, an abstraction, or a design — and send it to the public repo, your team's repo, or just this machine. The only way entries get there. |
 
 ## What makes it different
 

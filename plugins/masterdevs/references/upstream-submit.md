@@ -1,100 +1,64 @@
----
-name: contribute
-description: "Submit a gold entry, a learned pattern, or a learned lesson from your local Playbook upstream to MasterDevs/masterclaude as a pull request — or promote a local gold entry to your own repository's team scope with --to repo. Reaches upstream only through a throwaway clone, so no checkout you work in is ever touched, and scrubs internal names and paths on the upstream path only. Invoke as /masterdevs:contribute."
----
+# Submitting one thing upstream
 
-# /masterdevs:contribute — send one thing off this machine
+The shared mechanism for sending something off this machine to `MasterDevs/masterclaude` as a pull
+request. Two callers use it, and neither restates it:
 
-The Playbook learns locally. This is the only path out: either **up** to the shipped seeds as a pull
-request a maintainer reviews, or **across** from your own machine to your team's repository.
-
-Nothing here promotes anything. Upstream, review on GitHub is the gate; at team scope, your repository's
-own review is.
-
-## Step 0 — Resolve paths (do this first)
-
-- `PLUGIN_ROOT` = `${CLAUDE_PLUGIN_ROOT}` (this plugin's cache dir — read-only; wiped on update).
-- `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back**
-  to `~/.claude/plugins/data/masterdevs-masterclaude/`. All mutable state lives here — never write under
-  `PLUGIN_ROOT`.
-- `PLAYBOOK_DIR` = `$DATA_DIR/playbook`
-- `REPO_ROOT` = `git rev-parse --show-toplevel`
-
-## Arguments
-
-| Argument | Meaning |
+| Caller | Subject |
 |---|---|
-| `--to upstream` | **Default.** Submit to the shipped seeds as a pull request. |
-| `--to repo` | Promote a local gold entry into this repository's team scope. |
-| `--gold <id>` | The subject is the gold entry with that id. |
-| `--pattern <name>` | The subject is a promoted pattern row. |
-| `--lesson <name>` | The subject is a promoted lesson entry. |
-| `--upstream <owner/repo>` | Where a pull request goes. Defaults to `MasterDevs/masterclaude`. |
+| `/masterdevs:gold` (destination **public**) | one gold entry |
+| `/masterdevs:playbook` (mode 6) | one promoted pattern row or lesson entry |
 
-`--upstream` accepts a fork or a disposable remote, which is how the whole flow gets exercised without
-opening a real pull request — say which target you resolved and confirm it back before any push.
+The Playbook learns locally, and this is the only path out. **Nothing here promotes anything** — review
+on GitHub is the gate.
 
-## The procedure — one ordered path, `--to repo` returns early
+## Resolve paths first
 
-### 1. Resolve the subject
+- `PLUGIN_ROOT` = `${CLAUDE_PLUGIN_ROOT}` (read-only; wiped on plugin update).
+- `DATA_DIR` = `${CLAUDE_PLUGIN_DATA}` if it resolves to a real absolute path; **otherwise fall back**
+  to `~/.claude/plugins/data/masterdevs-masterclaude/`. Never write under `PLUGIN_ROOT`.
+- `PLAYBOOK_DIR` = `$DATA_DIR/playbook`
 
-- `--gold <id>` → read `$PLAYBOOK_DIR/gold/<id>.md`. Resolve through
-  `node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --list` if the id is ambiguous.
-- `--pattern <name>` → the row in `$PLAYBOOK_DIR/patterns/<domain>/catalog.md`.
-- `--lesson <name>` → the entry in `$PLAYBOOK_DIR/lessons/<lens>.md`.
+`--upstream <owner/repo>` overrides the destination, defaulting to `MasterDevs/masterclaude`. It accepts
+a fork or a disposable remote, which is how this flow gets exercised without opening a real pull
+request. **Confirm the resolved target back to the user before any push**, so a default cannot silently
+send a test run to the production repository.
 
-A pattern or lesson must **already be promoted**. A candidate is not eligible: it has not passed the
-gate, and `/masterdevs:playbook` is where that happens.
+## 1. Eligibility
 
-### 2. `--to repo` only — copy across, then STOP
+- A **gold entry** is eligible the moment it exists — a human captured it, and that is its gate.
+- A **pattern or lesson** must already be **promoted**. A candidate is not eligible: it has not passed
+  the recurrence-or-confirmation gate, and `/masterdevs:playbook` is where that happens.
 
-Copy `$PLAYBOOK_DIR/gold/<id>.md` to `$REPO_ROOT/.masterdevs/gold/<id>.md`, set `scope: repo` and
-`source: repo` in its frontmatter, then:
+## 2. Stage a copy — never the original
 
-```
-node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --reindex --scope repo
-node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --validate --gold-dir "$REPO_ROOT/.masterdevs/gold"
-```
-
-Name the lane in the validate call. Left to the scope chain it would validate everything resolvable
-from here, so a pre-existing problem in another lane reads as a failure of the entry you just promoted.
-
-**Stop there.** No scrub, no clone, no pull request.
-
-**Team-scope entries keep real internal identifiers verbatim** — module names, type names, service names,
-paths. That is the *point* of team scope: the example only reads correctly next to the code it came from.
-It is why scrubbing lives solely on the upstream branch of this procedure.
-
-Report the file it landed in and remind the user to commit it with their own code.
-
-### 3. Upstream only — scrub a copy
-
-Scrubbing operates on a **copy**, never on the source entry in `$PLAYBOOK_DIR`. Your own lane is yours;
-a submission is a derived artifact. Stage the copies somewhere disposable and keep a list of exactly
-what is being submitted — the gate in step 4 needs that list, and step 6 copies from it into the clone:
+Scrubbing operates on a **copy**. The user's own lane is theirs; a submission is a derived artifact.
+Stage the copies somewhere disposable and keep a list of exactly what is being submitted — the gate in
+step 4 needs that list, and step 6 copies from it into the clone:
 
 ```
 WORK="$(mktemp -d)"
 mkdir -p "$WORK/submit"
-cp "$PLAYBOOK_DIR/gold/<id>.md" "$WORK/submit/<id>.md"       # or the pattern/lesson file
+cp "<the source file>" "$WORK/submit/<name>.md"
 ls "$WORK"/submit/* > "$WORK/submit.txt"                      # one absolute path per line
 ```
 
-Build the active pattern list the same way, from two sources in this order:
+## 3. Build the pattern list, then scrub
+
+Two sources, in this order:
 
 1. `${CLAUDE_PLUGIN_ROOT}/references/scrub-patterns.txt` — the shipped shape classes.
-2. `$PLAYBOOK_DIR/scrub-patterns.local.txt` — your own organisation, repository and module names, if the
-   file exists. Those cannot ship in a public repo, so the local file is where they live.
+2. `$PLAYBOOK_DIR/scrub-patterns.local.txt` — the user's own organisation, repository and module names,
+   if the file exists. Those cannot ship in a public repo, so the local file is where they live.
 
 **Tracker ids are not in the shipped list**, and cannot be — no regex separates `PROJ-1234` from
 `SHA-256`. So if the local file carries no tracker pattern, ask before going any further:
 
 > No tracker-id pattern is configured, so `ENG-1234`-style references will not be scrubbed
-> automatically. I read the entry and found none. **Recommend: proceed (y)** — or say the prefixes you
-> use and I will add them to `scrub-patterns.local.txt` first.
+> automatically. I read it and found none. **Recommend: proceed (y)** — or say the prefixes you use and
+> I will add them to `scrub-patterns.local.txt` first.
 
-Read the entry yourself before asking, and say what you actually found. Asking in the abstract puts the
-work back on the user, which is how a question becomes a rubber stamp.
+Read the subject yourself before asking, and say what you actually found. Asking in the abstract puts
+the work back on the user, which is how a question becomes a rubber stamp.
 
 Both files are commented, and a comment line is not a regex, so strip comments and blanks once and use
 the result for **both** jobs — the rewrite and the gate — so the two cannot disagree about what counts:
@@ -116,10 +80,10 @@ Then, on the copies only:
 
 - Rewrite each match to a generic placeholder that keeps the sentence readable
   (`OrderRepository`, `src/app/module.py`, `<internal host>`).
-- Rewrite each anchor's `path` to a generic form — the shape of the tree, not your tree.
-- Set `source: contributed`.
+- For a gold entry, rewrite each anchor's `path` to a generic form — the shape of the tree, not the
+  user's tree — and set `source: contributed`.
 
-### 4. The gate — this is what makes it verifiable
+## 4. The gate — this is what makes it verifiable
 
 The gate re-reads the scrubbed **files themselves**. Not `git grep`: nothing is committed or staged at
 this point in the flow, and `git grep` searches tracked content, so pointed at an untracked copy it
@@ -166,7 +130,7 @@ Then report **what was inspected** — how many patterns, and every filename by 
 claim about specific files rather than about an empty list. Present the **full scrubbed diff** and take
 an explicit yes. Do not summarize the diff; the user is approving what leaves their machine.
 
-### 5. Pre-review before the branch
+## 5. Pre-review before the branch
 
 - A **gold** subject must pass
   `node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --validate --gold-dir "$WORK/submit"` — the scrubbed copy,
@@ -177,14 +141,14 @@ an explicit yes. Do not summarize the diff; the user is approving what leaves th
   `plugins/masterdevs/skills/playbook/SKILL.md` (mode 1's promote bullet) — read it there rather than
   restating it here.
 
-### 6. Branch and push — in a throwaway clone, never in a checkout you work in
+## 6. Branch and push — in a throwaway clone, never in a checkout the user works in
 
 ```
 TMP="$(mktemp -d)"
 git clone --depth 1 https://github.com/<upstream> "$TMP/masterclaude"
 cd "$TMP/masterclaude"
 git switch -c <type>/<slug>
-cp "$WORK/submit/<id>.md" <its place in the clone>    # the gated copies, nothing else
+cp "$WORK/submit/<name>.md" <its place in the clone>    # the gated copies, nothing else
 git add -A && git commit -m "<conventional commit>"
 git push -u origin <type>/<slug>
 ```
@@ -198,11 +162,9 @@ Only files listed in `$WORK/submit.txt` may be copied in. Anything else has not 
 - any push to a default branch (`git push origin main`, `git push --force`, a push with no branch name)
 
 A throwaway clone is what makes "never touches main" **structural** rather than a promise: there is no
-main checked out anywhere for the flow to reach. Confirm the resolved `--upstream` target back to the
-user **before** the push, so a default cannot silently send a test run to the production repository, and
-`rm -rf "$TMP" "$WORK"` at the end.
+main checked out anywhere for the flow to reach. Then `rm -rf "$TMP" "$WORK"` at the end.
 
-### 7. Open the pull request
+## 7. Open the pull request
 
 ```
 gh pr create --repo <upstream> --base main --head <branch> --title "<title>" --body "<body>"
@@ -214,20 +176,21 @@ The title must be a conventional commit with a **lowercase subject**, matching t
 - `feat(gold): add a repository-shaped data access example` — a gold entry
 - `feat(playbook): add the guarded-suspension detection row` — a pattern or lesson
 
-Body: what the entry shows, where it came from in **generic** terms, and one line stating that maintainer
-review on GitHub is the gate.
+Body: what the subject shows, where it came from in **generic** terms, and one line stating that
+maintainer review on GitHub is the gate.
 
-If `gh` is missing or unauthenticated, **stop and print the branch location** rather than half-completing.
-A pushed branch with no pull request is recoverable; a half-run flow the user cannot see is not.
+If `gh` is missing or unauthenticated, **stop and print the branch location** rather than
+half-completing. A pushed branch with no pull request is recoverable; a half-run flow the user cannot
+see is not.
 
 ## Rules
 
 - **Never operate in the user's current checkout.** Clone, branch, push, delete.
 - **Never push to a default branch.**
-- **Scrub on the upstream path only.** Team scope keeps real code — that is what team scope is for.
+- **Scrub on this path only.** A team-scope gold entry keeps real internal identifiers verbatim — that
+  is what team scope is for, and it is why scrubbing lives here rather than at capture time.
 - **The gate, not the rewrite, is the guarantee.** Refuse on any hit; never redact-and-continue.
 - **A gate that inspected nothing has not passed.** No patterns loaded, no files listed, a file in the
-  list missing, the positive control not matching, or `grep` itself erroring — every one of those is a
-  refusal, never a clean result. "I found no problems" must mean "I read these files and found none".
-- Nothing here promotes anything. Upstream, the maintainer's review decides; at team scope, the
-  repository's own review does.
+  list missing, either control failing, or `grep` itself erroring — every one of those is a refusal,
+  never a clean result. "I found no problems" must mean "I read these files and found none".
+- **Nothing here promotes anything.** The maintainer's review on GitHub decides.
