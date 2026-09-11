@@ -48,17 +48,26 @@ If a field feels like it needs asking, derive it and show the derived value in t
 instead. The protocol is the house one — `${CLAUDE_PLUGIN_ROOT}/references/interview.md` — one question
 at a time with your guess attached.
 
-Every question prints one explicitly marked recommendation the user accepts with a bare `y`. The six
-headings below carry that shape already — ask each one exactly as written, with the placeholders filled
-in from the repo. No question may be asked without a recommendation attached: an unanswerable question
-is what turns a two-minute capture into an interview.
+Every question prints one explicitly marked recommendation the user accepts with a bare `y`, **and one
+line saying what the answer decides**. The six headings below carry that shape already — ask each one
+exactly as written, with the placeholders filled in from the repo. The `SO:` line is the protocol's
+(`references/interview.md`) and is not optional here: a recommendation the user cannot weigh is a coin
+flip they are being asked to call, and six of those turn a two-minute capture into an interview they
+cannot answer.
+
+None of these six may be named after the field it fills. The user does not know what `not-this` or an
+anchor is, and does not need to — they know their own code.
 
 ## The six questions
 
 ### 1. Destination — where does this go? `[recommend: <public|team|local>]` — y to accept, or type an override
 
-Ask this **first**, before anything else is settled. It decides the frontmatter, whether the excerpt
-gets scrubbed, and whether the flow ends on this machine or in a pull request.
+Ask this **first**, before anything else is settled.
+
+> **SO:** this decides who can ever read the example. **local** keeps it on this machine. **team**
+> commits it beside your code, where real internal names are fine. **public** opens a pull request, so
+> the copy that leaves gets scrubbed first and a maintainer decides whether it ships. You keep your own
+> copy either way, and the choice can be revisited later without capturing anything twice.
 
 | Answer | Where it lands | Frontmatter | Reviewed by |
 |---|---|---|---|
@@ -119,34 +128,58 @@ repository is an outward-facing, hard-to-reverse action, so it is gated separate
 
 ### 2. Kind and domain `[recommend: <kind> / <domain>]` — y to accept, or type an override
 
+> **SO:** the kind picks which sections the entry is written in — a well-shaped piece of code, a
+> contract, and a structure each need different things said about them. The domain decides which
+> catalog the example is filed beside, and so which future work surfaces it.
+
 One paired recommendation, not two questions. Read the kinds from the schema and pick by what the
 example *is*: a single well-shaped piece of code, a contract other things conform to, or a structure
 whose seams are the point. Domain is one of the pattern-catalog domains under
 `$PLAYBOOK_DIR/patterns/` (`core`, `backend`, `frontend`, `data`, `algo`, `concurrency`, `integration`,
 `testing`, `infra`).
 
-### 3. The anchors `[recommend: <file>#<symbol>, …]` — y to accept, or type an override
+### 3. Which code should this example point at? `[recommend: <file> · <symbol>, …]` — y to accept, or type an override
+
+Ask for a file and the function or class inside it — never the word "anchor". Say what the answer buys:
+
+> **SO:** the entry keeps a copy of that code, plus a note of where it came from and the commit it was
+> current at. That note is what lets `--validate` tell you later that the original was renamed or
+> removed and the saved copy has gone out of date.
 
 Confirm the set as a list of `(file, symbol)` pairs. Rules:
 
-- **Prefer a symbol over a line range.** A symbol is what `--validate` can check for rot; a range only
-  proves the file is still long enough. When a range is unavoidable, write it as `L<start>-L<end>`.
+- **Prefer a symbol over a line range**, and tell the user why when you recommend one: a function or
+  class name survives edits above it, so a rename is caught. A line range only proves the file is still
+  long enough, so a rename passes silently. When a range is unavoidable, write it as `L<start>-L<end>`.
 - Take each `sha` from `git log -1 --format=%H -- <path>` — the commit that last touched that file, so
   the sha means *this excerpt as of here*.
-- **Refuse if the file is untracked or has uncommitted changes**, and ask the user to commit first. An
-  anchor with no verifiable sha cannot be checked for rot, and an entry that can never be found stale
-  is worse than no entry.
+- **Refuse if the file is untracked or has uncommitted changes**, and ask the user to commit first —
+  saying why, not just refusing: without a commit to point at there is nothing to compare against later,
+  so the entry could never be found stale, which is worse than not capturing it.
+- If the example spans more than one place, name them all. Each gets its own excerpt in the body.
 
 ### 4. Title `[recommend: <title>]` — y to accept, or type an override
 
 A short noun phrase a cold reader can pick out of an index. `id` is its kebab-case form.
 
-### 5. `not-this` — the near-miss this entry is *not* `[recommend: <the tempting wrong version>]` — y to accept, or type an override
+> **SO:** this is the line an agent sees in the index before deciding whether to open the entry, and the
+> id is permanent — renaming later means a second entry for one example.
 
-The shape someone would reach for instead, and why it is worse. Answer `none` if there genuinely is no
-near-miss; the field stays present either way.
+### 5. What would someone reach for instead, that this example is deliberately not? `[recommend: <the tempting wrong version>]` — y to accept, or type an override
+
+The shape a reasonable person would write instead, and why it is worse.
+
+> **SO:** the entry shows that wrong version beside the right one, so a reader learns the distinction
+> rather than only the conclusion. Answer `none` and they see the right version alone — which is the
+> better answer when there is no tempting alternative, and a loss when there is.
+
+Answer `none` if there genuinely is no near-miss; the field stays present either way.
 
 ### 6. Which catalog patterns does this demonstrate? `[recommend: <pattern>, …]` — y to accept, or type an override
+
+> **SO:** naming a pattern is how an agent looking for that pattern finds this example. Name none and
+> the example is still readable and still found by domain — it just will not surface for a pattern
+> search.
 
 Propose by matching the example against `$PLAYBOOK_DIR/patterns/<domain>/catalog.md` and
 `patterns/core/catalog.md`. `patterns[]` may be empty — an example need not name a pattern.
@@ -212,9 +245,18 @@ If validation reports anything, **fix the entry and re-run before reporting succ
 authoritative — that is the mechanism that stops this prose template drifting from the schema, and it is
 the reason none of the schema is restated here.
 
-Report in one line: the id, the lane it landed in, and the anchors it carries. On the **public** path,
-add the pull request URL — and say plainly that a maintainer's review, not this command, decides whether
-it ships.
+**Do not print the entry body.** The user just answered six questions about it and the excerpt is their
+own code — reprinting several hundred lines they already know buries the one thing they need, which is
+where it went. Report the absolute path on its own line so the terminal makes it clickable, then the id
+and the anchors:
+
+```
+$PLAYBOOK_DIR/gold/<id>.md
+<id> — <n> anchor(s): <file>·<symbol>, …   ·   say `show` to print it here
+```
+
+Offer `show` and honor it; do not volunteer the body. On the **public** path, add the pull request URL —
+and say plainly that a maintainer's review, not this command, decides whether it ships.
 
 ## Rules
 
@@ -223,11 +265,14 @@ it ships.
 - **A captured entry is live immediately.** There is no candidate stage and no recurrence gate, unlike
   patterns and lessons — a human chose this example, which *is* the gate.
 - **Never write anything under `${CLAUDE_PLUGIN_ROOT}`.** It is wiped on plugin update.
-- **Show the user the full entry body before writing it.** A captured entry becomes content every future
-  agent reads, so capture is a write into the agents' standing context — the same class of action
-  `/masterdevs:playbook` treats as security-relevant.
+- **Never print the entry body unasked** — report the path and let the user open it. The review that
+  matters is on the way *out*, not on the way in: a captured entry lands on the user's own machine or in
+  their own repository, holding code they just chose. The gate that guards other people is the full
+  scrubbed diff in `references/upstream-submit.md`, before any push, and it is not optional. 
 - **Refuse to capture an excerpt containing a credential, token, private key, or key-shaped string.**
-  Say what you found and ask for a different excerpt; do not redact and proceed.
+  Say what you found and ask for a different excerpt; do not redact and proceed. This is the one content
+  check that runs at capture time, because it protects the user from their own repository rather than
+  protecting anyone else from the user.
 - A **team-scope** entry is committed to the repo, so real internal names in it are intentional and
   stay. Scrubbing happens only on the **public** path, on a copy, per
   `${CLAUDE_PLUGIN_ROOT}/references/upstream-submit.md`.

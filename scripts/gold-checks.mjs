@@ -649,7 +649,9 @@ check('gold/SKILL.md — the destination table and the lane moves both name thei
   const text = skill('gold/SKILL.md')
   const table = text.slice(text.indexOf('### 1.'), text.indexOf('### 2.'))
   const move = table.slice(table.indexOf('| From \u2192 to |'))
-  const publicRow = table.split('\n').find((l) => l.includes('**public**')) || ''
+  // A table ROW, not merely a line mentioning the word: question 1's prose also names the three
+  // destinations, and matching that instead would check the summary while the table drifted.
+  const publicRow = table.split('\n').find((l) => l.startsWith('|') && l.includes('**public**')) || ''
   const localToTeam = move.split('\n').find((l) => l.includes('local \u2192 team')) || ''
   const teamToLocal = move.split('\n').find((l) => l.includes('team \u2192 local')) || ''
   const write = text.slice(text.indexOf('## Write the entry'))
@@ -693,6 +695,59 @@ check('gold/SKILL.md — the destination table and the lane moves both name thei
       'and validate the lane it wrote against a named repository, or a deleted anchor exits 0'],
     [!/--scope <local\|repo>/.test(write),
       'and must not offer one command with a placeholder scope — it hides that the flags differ too'],
+  ]
+})
+
+// A question named after the field it fills is answerable only by whoever wrote it — the user knows
+// their own code, not that `not-this` is a field. And a recommendation with no stated consequence is a
+// coin flip the user is asked to call, so a bare `y` means compliance rather than a decision. Both
+// mistakes are invisible to the author, who already knows what each answer is for, which is why they
+// are asserted rather than left to review.
+check('gold/SKILL.md — every question is asked in the user\'s words and says what the answer decides', () => {
+  const text = skill('gold/SKILL.md')
+  const heads = text.split('\n').filter((l) => l.startsWith('### ') && l.includes('[recommend:'))
+  // Each question runs from its own heading to the next one (or to the write step for the last).
+  const blocks = heads.map((h) => {
+    const from = text.indexOf(h)
+    const rest = text.slice(from + h.length)
+    const nextIdx = rest.search(/\n### |\n## Write the entry/)
+    return rest.slice(0, nextIdx === -1 ? undefined : nextIdx)
+  })
+  // Field names the schema fills. A question may mention one in its rules; it may not be the subject
+  // of the heading the user reads.
+  const fieldNames = /\b(not-this|anchors?|patterns\[\]|lenses|frontmatter)\b/i
+  return [
+    [heads.length === 6, `expected six questions — found ${heads.length}`],
+    [heads.every((h) => !fieldNames.test(h.split('`[recommend:')[0])),
+      'no question may be named after the field it fills — ' +
+      `offending: ${heads.filter((h) => fieldNames.test(h.split('`[recommend:')[0]))
+        .map((h) => h.slice(0, 44)).join(' | ') || 'none'}`],
+    [blocks.every((b) => /\*\*SO:\*\*/.test(b)),
+      'every question must state what the answer decides — ' +
+      `${blocks.filter((b) => !/\*\*SO:\*\*/.test(b)).length} of 6 have no SO: line`],
+    [/references\/interview\.md/.test(text),
+      'and the shape must be credited to the shared protocol, not restated as a local rule'],
+    // Capture reports where the entry went; it does not reprint what the user just dictated. The
+    // review that protects other people is the scrubbed diff before a push, which lives in the
+    // upstream reference — so removing the body dump must not remove that one with it.
+    [/[Nn]ever print the entry body unasked/.test(text),
+      'capture must report the path, not reprint the body the user just specified'],
+    [/scrubbed diff/.test(text) && /upstream-submit\.md/.test(text),
+      'and must still point at the pre-push diff gate, which is the review that guards anyone else'],
+    [/credential, token, private key/.test(text),
+      'and must still refuse an excerpt carrying a credential — the one check that runs at capture'],
+  ]
+})
+
+// The shape itself lives in one file that four skills read, so the rule is asserted where it is defined
+// rather than in each caller.
+check('interview.md — the shared question shape carries the consequence line', () => {
+  const text = reference('interview.md')
+  return [
+    [/Q: +<[\s\S]{0,120}GUESS: <[\s\S]{0,120}SO: +</.test(text),
+      'the question template must be question, guess, and what the answer decides — in that order'],
+    [/[Nn]ever name the question after the field it fills/.test(text),
+      'and must ban naming a question after the field it fills'],
   ]
 })
 
