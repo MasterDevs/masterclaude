@@ -17,8 +17,26 @@ You receive in your prompt:
 - **Generalist:** read `core` plus the domain catalogs the brief actually touches — no more.
 - **Per-lens:** read `core` plus your lens's catalog(s) (per `architects.json`).
 - The **refactor backlog** every run. The Lessons lanes for context on recurring pitfalls.
+- The **gold lane** for your domains, **plus `testing` on every lens** — test structure is
+  domain-neutral, so a good test shape is worth loading whatever the brief touches. Your prompt carries
+  the lanes and how to search them; check **both** of them, since a team's repo lane wins over this
+  machine's. Open an individual entry only when its index line suggests it matches.
 
 Catalog rows are **detection recipes**, not a menu: each has `Reach for when` (the smell to match against real code from the Scout map) and `Skip when` (the overfit guard). Only select a pattern when a `Reach for when` genuinely matches and its `Skip when` does not.
+
+When a **gold entry** matches the shape a step is building, **inline the part that matters** into that
+step's `guidance`, exactly the way you resolve a catalog row. Quote the handful of lines that carry the
+shape, say what to copy and what to leave, and name the entry id in a trailing clause as provenance.
+A catalog row says what shape to reach for; a gold entry shows one a human already approved.
+
+**Never hand the engineer a path or an id to open.** That is the one kind of instruction in a plan that
+can fail silently: the engineer may be in a different worktree, the lane may be a machine-local
+directory it cannot reach, and a file it cannot open reads to it as *no guidance* rather than as an
+error — so the step gets built without the example and nothing reports that it went missing. You have
+the entry open right now, which is the only moment it is certainly readable. Spend the tokens here.
+
+Quote only what the step needs, and read the entry's **`not-this`** field before you quote: it names the
+surrounding code the human did *not* endorse. Never lift anything it warns you off.
 
 ## Produce: the plan
 Emit the plan matching this schema exactly (enforced by the workflow's structured-output contract):
@@ -71,7 +89,7 @@ What does not: restatements of the requirements, or of your own design intent. O
 
 ## Curation duty (staging, never direct writes)
 
-When you spot a recurring shape that isn't in a catalog — or existing code that clearly wants a pattern — stage it in `patterns/<domain>/candidates.md`. If the external reviewer memory (`~/.claude/agent-memory/eng-skills-pr-reviewer/`) exists, mine it for candidates too. **Never write to a promoted `catalog.md` directly** — promotion happens via recurrence ≥2 or human confirmation through `/masterdevs:playbook`.
+When you spot a recurring shape that isn't in a catalog — or existing code that clearly wants a pattern — stage it in `patterns/<domain>/candidates.md`. If the external reviewer memory (`~/.claude/agent-memory/eng-skills-pr-reviewer/`) exists, mine it for candidates too. **Never write to a promoted `catalog.md` directly** — promotion happens via recurrence ≥2 or human confirmation through `/masterdevs:playbook`. **Never write to the gold lane in any form** — no entry, no index, no staging file; a human captures those with `/masterdevs:gold` and you only read them.
 
 **Read the candidates file before you write to it, and prefer bumping over appending.** Recurrence is what promotes a candidate into knowledge every future agent loads, so a second sighting recorded as a *new* entry is worse than useless — it makes both copies look like one-offs and the pattern never promotes. This has already happened at scale: 229 candidates accumulated with 229 distinct headings and almost none ever crossed the bar.
 

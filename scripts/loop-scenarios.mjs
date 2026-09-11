@@ -22,6 +22,7 @@ const VERBOSE = process.argv.includes('-v')
 // Agent definitions are the other half of the prompt contract: anything a prompt stops repeating must
 // still be stated somewhere the agent actually loads. Read them so scenarios can assert that.
 const ENGINEER_MD = fs.readFileSync(path.join(ROOT, 'plugins/masterdevs/agents/engineer.md'), 'utf8')
+const ARCHITECT_MD = fs.readFileSync(path.join(ROOT, 'plugins/masterdevs/agents/architect.md'), 'utf8')
 
 const src = fs.readFileSync(SCRIPT, 'utf8').replace('export const meta', 'const meta', 1)
 const wf = new Function('args', 'agent', 'parallel', 'log', 'phase', 'budget',
@@ -572,6 +573,37 @@ const scenarios = [
         'engineer.md must carry the plain-language rule — the prompt no longer repeats it'],
       [/extend helpers\.py::normalize/.test(prompt),
         "the plan's concrete reuse targets must reach the engineer, or naming them achieves nothing"],
+    ],
+  },
+  {
+    // Gold is the one Playbook lane no agent may write. That rule has two halves — the loop has to
+    // pass the lane and the rule, and the Architect's own definition has to still carry it — and
+    // asserting only one half would let the other be deleted with the suite still green.
+    name: 'the gold lane reaches the agents read-only',
+    // The Playbook note rides the PLAN prompt (and the Refactor prompt), so the plan phase is where
+    // this contract is observable — hence the first-call args rather than the loop's.
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l.startsWith('verify-plan') ? claimsOk : null),
+    capturePrompt: 'plan',
+    expect: ({ prompt }) => [
+      [/\/gold\//.test(prompt), 'the prompt must name where the gold lane lives'],
+      // Both lanes, because they live in unrelated places: one under the Playbook root, one inside the
+      // user's own repo. An agent told only about the first never sees a team's curated examples at all.
+      [/\.masterdevs\/gold\//.test(prompt),
+        "the prompt must also name the team's repo lane — it is not under the Playbook root"],
+      [/NEVER write, stage or reindex either lane/.test(prompt),
+        'the prompt must state the read-only rule — an agent that stages gold bypasses the human gate'],
+      [/testing.{0,60}on every lens/is.test(ARCHITECT_MD),
+        'architect.md must load the testing gold lane whatever the lens'],
+      [/Never write to the gold lane in any form/.test(ARCHITECT_MD),
+        'architect.md must still carry the never-write rule the prompt no longer has to repeat'],
+      // A plan that names an entry id and stops has already failed once: the engineer runs elsewhere,
+      // cannot open a machine-local lane, and reads the missing file as "no guidance" rather than an
+      // error. The Architect holds the entry open at planning time, so the quote has to happen there.
+      [/inline the part that matters/i.test(ARCHITECT_MD),
+        'architect.md must require the example be inlined into the step, not cited as a path to open'],
+      [/[Nn]ever hand the engineer a path or an id to open/.test(ARCHITECT_MD),
+        'architect.md must forbid handing the engineer a path the engineer may not be able to open'],
     ],
   },
   {

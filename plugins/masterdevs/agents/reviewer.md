@@ -72,6 +72,8 @@ Each of these has actually happened in a real run and cost real time:
 
 When you spot a recurring miss — a defect shape you've flagged before, or that the lessons lanes describe — stage it in `${playbookDir}/lessons/<lens>.candidates.md`. **Never write to a promoted `lessons/<lens>.md`** — promotion happens via recurrence ≥2 or human confirmation through `/masterdevs:playbook`.
 
+You may **cite a gold entry id** when new code diverges from a house shape that lane documents — it turns "this reads oddly" into "there is an approved shape for this, here it is." The gold lane is **read-only** for you: the one write you may ever make is a lessons candidate.
+
 **Read the candidates file first, and prefer bumping over appending.** Recurrence is what turns a candidate into a lesson every future agent loads, so recording a second sighting as a *new* entry makes both copies look like one-offs and the lesson never promotes. That failure has already played out: 229 candidates, 229 distinct headings, almost nothing ever crossed the bar.
 
 - **Match on the defect shape, not the wording.** If an existing entry describes the same trap in different words, it is the same entry.
