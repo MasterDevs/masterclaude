@@ -32,6 +32,14 @@ $masterdevs-review review the current diff
 
 These respectively interview without editing, create a repository-grounded plan without editing, and review the current diff without fixing it.
 
+To capture one example worth copying into the Playbook's gold lane — and choose whether it stays on this machine, is committed beside your code, or is offered upstream as a pull request:
+
+```text
+$masterdevs-gold
+```
+
+Six questions, each with a recommended answer you accept with `y`. It is the only writer of that lane: every agent reads entries and cites their ids, and no loop step ever stages one.
+
 For the full run:
 
 ```text
@@ -88,7 +96,9 @@ Start a new Codex instance after reinstalling.
 - `codex-state.mjs` provides resumable provider-owned state and a stable Playbook location without reading host-session data.
 - The Claude plugin remains under `plugins/masterdevs/`; its commands and workflow runtime are unchanged.
 
-The interview, reporting, preflight, and shipped Playbook assets are duplicated into the distributable Codex plugin because plugin caches are self-contained. `node scripts/codex-state-scenarios.mjs` fails if those shared copies drift.
+- `gold.mjs` is shared byte-identical with the Claude adapter, the same way `playbook.mjs` is: the skills always pass explicit paths, so it needs no per-host copy. What differs is how the lane is seeded — Claude's skill prose runs `--merge-seeds` during bootstrap, while `codex-state.mjs` calls it in code, before the seed release is stamped, so a failed merge retries instead of recording itself as done.
+
+The interview, reporting, preflight, shared scripts, and shipped Playbook assets are duplicated into the distributable Codex plugin because plugin caches are self-contained. `node scripts/codex-state-scenarios.mjs` fails if those shared copies drift, in either direction, and if a portable script or reference exists in one adapter and not the other.
 
 ## Local verification
 

@@ -54,7 +54,7 @@ The subagent must not reopen confirmed preferences. Blocking code contradictions
 
 Run two read-only subagents in parallel:
 
-1. An architect explicitly using `$masterdevs-architect`, given requirements, success criteria, relevant Playbook catalogs, refactor backlog, and absolute output expectations.
+1. An architect explicitly using `$masterdevs-architect`, given requirements, success criteria, relevant Playbook catalogs plus the `testing` catalog on every lens, the two gold lanes in precedence order — `<repoRoot>/.masterdevs/gold` (the team's, and it wins) then `playbook/gold` (this machine's) — telling it to read each lane's `INDEX.md` first and open only the entries whose index line matches, refactor backlog, and absolute output expectations. A lane that does not exist is normal, not an error.
 2. A criteria checker looking only for contradictions, unreachable targets, and criteria that cannot be verified with the named data. It returns `{issues:[{kind,criteria,problem,evidence,soWhat}]}` where kind is `contradiction`, `unreachable-target`, or `unverifiable`.
 
 Contradictions and unreachable targets stop before implementation. Unverifiable criteria become plan-gate caveats.
@@ -96,7 +96,7 @@ Never run two workspace-writing agents concurrently. Never let a reviewer or ver
 
 If safe medium/low revisions remain, run one fresh `$masterdevs-engineer` Polish agent. Skip anything that requires a design decision. Re-run the regression gate only if the tree fingerprint changed.
 
-If verification fixes landed after review, run one final pass with the panel resolved above, scoped only to those fixes. Reviewer and engineer agents return Playbook candidates; serialize candidate-file updates in the parent after all concurrent agents finish. Never let concurrent subagents write candidate files.
+If verification fixes landed after review, run one final pass with the panel resolved above, scoped only to those fixes. Reviewer and engineer agents return Playbook candidates; serialize candidate-file updates in the parent after all concurrent agents finish. Never let concurrent subagents write candidate files. No loop step ever writes the gold lane — it is human-captured through `$masterdevs-gold` and read-only to every agent here.
 
 ## 8. Reporting
 

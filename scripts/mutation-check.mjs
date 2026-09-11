@@ -190,6 +190,9 @@ const ROSTER_SKILL = path.join(CODEX, 'skills/masterdevs-roster/SKILL.md')
 const LOOP_DOC = path.join(CODEX, 'skills/masterdevs-feature/references/feature-loop.md')
 const SHARED_CATALOG = path.join(CODEX, 'playbook-seeds/patterns/core/catalog.md')
 const REVIEWER_AGENT = path.join(CODEX, 'skills/masterdevs-reviewer/agents/openai.yaml')
+const GOLD_SKILL = path.join(CODEX, 'skills/masterdevs-gold/SKILL.md')
+const ARCHITECT_SKILL = path.join(CODEX, 'skills/masterdevs-architect/SKILL.md')
+const SHARED_GOLD_SCRIPT = path.join(CODEX, 'scripts/gold.mjs')
 
 // The shipped rosters are data, not code, and they are what actually went wrong: the Codex copies
 // were byte-identical to Claude's, naming an `opus` model and a `masterdevs:` subagent that no
@@ -317,6 +320,55 @@ const SEED_PARITY_MUTATIONS = [
 ]
 
 // Each target pairs a source file with the suite that is supposed to defend it.
+// The gold lane reached the Claude adapter a release before this one, so these hold the Codex half to
+// the runtime it actually runs on rather than to whatever the Claude copy happens to say.
+const GOLD_BOOTSTRAP_MUTATIONS = [
+  ['the shipped gold index is copied and never rebuilt',
+    'mergeGoldSeeds(playbookDir)', '/* mergeGoldSeeds(playbookDir) */'],
+  ['a seed release overwrites a gold entry the user captured',
+    "copyMissing(SEEDS, playbookDir)", "fs.cpSync(SEEDS, playbookDir, { recursive: true, force: true })"],
+  ['the gold merge runs after the stamp, so a failure records itself as done',
+    'mergeGoldSeeds(playbookDir)\n    fs.writeFileSync(stampPath, `${seedVersion}\\n`)',
+    'fs.writeFileSync(stampPath, `${seedVersion}\\n`)\n    mergeGoldSeeds(playbookDir)'],
+]
+
+const GOLD_SKILL_MUTATIONS = [
+  ['capture writes an entry and leaves the index stale',
+    '--reindex --scope local --playbook-dir', '--validate --playbook-dir'],
+  ['a local capture reindexes the repo lane, leaving an empty directory in the checkout',
+    '--reindex --scope repo --repo-root', '--reindex --scope local --repo-root'],
+  ['capture stops validating what it wrote', '--validate --gold-dir', '--list --gold-dir'],
+  ['the public destination loses its scrub gate', 'upstream-submit.md', 'upstream-notes.md'],
+  ['the port keeps the Claude command a Codex user cannot run',
+    '`$masterdevs-playbook`', '`/masterdevs:playbook`'],
+  ['paths come from a hardcoded data directory instead of the run store',
+    'codex-state.mjs" paths --json', 'codex-state.mjs" nothing --json'],
+]
+
+const ARCHITECT_GOLD_MUTATIONS = [
+  ['the architect hands over an id to open instead of inlining the example',
+    'Never hand the engineer a path or an id to open',
+    'Hand the engineer the entry id and let it open the file'],
+  ['the architect may write the lane it is only meant to read',
+    'a human captures those with `$masterdevs-gold`', 'stage one yourself'],
+]
+
+// gold.mjs is shared byte-identical with the Claude adapter, the same way playbook.mjs is: the Codex
+// skills always pass explicit paths, so the script needs no per-host copy. A divergent copy is drift.
+const SHARED_GOLD_SCRIPT_MUTATIONS = [
+  ['the shared gold script drifts between adapters',
+    "const SEEDS_DEFAULT", "const SEEDS_UNUSED_DEFAULT"],
+  ['the shared script advertises the Claude command to Codex users',
+    "fs.existsSync(path.join(HERE, '../.codex-plugin'))", 'false'],
+]
+
+const PORTABLE_PARITY_MUTATIONS = [
+  ['a reference lands in one adapter and is forgotten in the other',
+    { add: 'plugins/masterdevs/references/claude-only.md', contents: '# claude only\n' }],
+  ['a script ships to the Codex adapter alone',
+    { add: 'plugins/masterdevs-codex/scripts/codex-only.mjs', contents: 'export default 1\n' }],
+]
+
 const TARGETS = [
   { name: 'feature-loop', src: LOOP_SRC, suite: 'scripts/loop-scenarios.mjs', mutations: MUTATIONS },
   { name: 'codex-state', src: STATE_SRC, suite: 'scripts/codex-state-scenarios.mjs', mutations: STATE_MUTATIONS },
@@ -332,6 +384,11 @@ const TARGETS = [
   { name: 'codex-shared-catalog', src: SHARED_CATALOG, suite: 'scripts/codex-state-scenarios.mjs', mutations: SHARED_CATALOG_MUTATIONS },
   { name: 'codex-reviewer-agent', src: REVIEWER_AGENT, suite: 'scripts/codex-state-scenarios.mjs', mutations: REVIEWER_AGENT_MUTATIONS },
   { name: 'codex-seed-parity', src: null, suite: 'scripts/codex-state-scenarios.mjs', mutations: SEED_PARITY_MUTATIONS },
+  { name: 'codex-gold-bootstrap', src: STATE_SRC, suite: 'scripts/codex-state-scenarios.mjs', mutations: GOLD_BOOTSTRAP_MUTATIONS },
+  { name: 'codex-gold-skill', src: GOLD_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: GOLD_SKILL_MUTATIONS },
+  { name: 'codex-architect-gold', src: ARCHITECT_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: ARCHITECT_GOLD_MUTATIONS },
+  { name: 'codex-shared-gold-script', src: SHARED_GOLD_SCRIPT, suite: 'scripts/codex-state-scenarios.mjs', mutations: SHARED_GOLD_SCRIPT_MUTATIONS },
+  { name: 'codex-portable-parity', src: null, suite: 'scripts/codex-state-scenarios.mjs', mutations: PORTABLE_PARITY_MUTATIONS },
 ]
 // A target with no src only creates and removes files; it never edits one.
 for (const target of TARGETS) {
@@ -441,7 +498,12 @@ for (const target of TARGETS) {
       stale++
       continue
     } else {
-      fs.writeFileSync(target.src, orig.replace(from, to))
+      // replaceAll, not replace. A skill file states the same command in a table and again in the
+      // step that runs it, and breaking only the first occurrence leaves the assertion matching the
+      // survivor — the mutation reports MISSED while the behavior it names is still documented
+      // somewhere in the file. Four gold-lane mutations landed exactly there. A mutation names a
+      // behavior, so it has to remove every statement of it.
+      fs.writeFileSync(target.src, orig.replaceAll(from, to))
     }
     let suitePassed
     try { execSync(`node "${target.suite}"`, { cwd: ROOT, stdio: 'pipe' }); suitePassed = true }

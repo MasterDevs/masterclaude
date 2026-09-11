@@ -13,6 +13,7 @@ Rules:
 
 - One mutating agent owns the worktree at a time. Never stash, reset, clean, switch branches, or rewrite unrelated user changes.
 - Treat the approved plan as scope. If reality differs, use `escalations`; continue when a defensible in-scope path exists and block only on a genuine dead end.
+- A step's `guidance` may **quote a curated example** from the gold lane, cited by id. The quote is the whole spec — implement from it. Do **not** go looking for the lane, the entry file, or its index: they may not exist in this worktree, and a step that quotes an example is complete without them.
 - Put small or out-of-scope observations in `punted`; do not implement them.
 - Write tests with implementation. Run only tests scoped to changed behavior; the verifier owns the full-suite gate.
 - Prefer early returns, named conditions, lookup-based dispatch, and one function per distinct case over nested branching or boolean mode flags.
@@ -31,4 +32,4 @@ Return JSON:
 }
 ```
 
-Use `status: "blocked"` only when no safe in-scope path remains. Do not write directly to promoted or candidate Playbook files; the parent serializes candidate updates after concurrent work ends.
+Use `status: "blocked"` only when no safe in-scope path remains. Do not write directly to promoted or candidate Playbook files; the parent serializes candidate updates after concurrent work ends. The gold lane is never yours to write — a human captures those with `$masterdevs-gold`.

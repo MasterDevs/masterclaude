@@ -186,6 +186,19 @@ function copyMissing(sourceDir, targetDir) {
   }
 }
 
+// copyMissing already carries the shipped gold entries across, but it copies the shipped INDEX.md
+// once and then never touches it again — so a later seed release adds entries that the index does not
+// list. Architects choose which entries to open from that index, so an unlisted entry is invisible
+// rather than merely unindexed: the capability is silently lost and nothing reports it. gold.mjs owns
+// the index format, so ask it to rewrite rather than reproducing the format here and letting the two
+// drift. Failure is deliberately not swallowed — bootstrap runs before the stamp is written, so an
+// error here leaves the Playbook unstamped and the next phase retries instead of recording success.
+function mergeGoldSeeds(playbookDir) {
+  execFileSync(process.execPath,
+    [path.join(SCRIPT_DIR, 'gold.mjs'), '--merge-seeds', '--playbook-dir', playbookDir],
+    { stdio: ['ignore', 'ignore', 'pipe'] })
+}
+
 function bootstrapPlaybook(playbookDir) {
   const seedVersion = fs.readFileSync(path.join(SEEDS, 'VERSION'), 'utf8').trim()
   // Stamped per adapter. One MASTERDEVS_DATA_DIR can be pointed at a Playbook the Claude adapter
@@ -198,6 +211,7 @@ function bootstrapPlaybook(playbookDir) {
   if (installed !== seedVersion) {
     fs.mkdirSync(playbookDir, { recursive: true })
     copyMissing(SEEDS, playbookDir)
+    mergeGoldSeeds(playbookDir)
     fs.writeFileSync(stampPath, `${seedVersion}\n`)
   }
 

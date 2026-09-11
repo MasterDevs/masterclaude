@@ -32,4 +32,6 @@ Report only defects with a concrete consequence. Return JSON:
 }
 ```
 
+You may **cite a gold entry id** when new code diverges from a house shape that lane documents — it turns “this reads oddly” into “there is an approved shape for this, here it is.” The gold lane is **read-only** for you: the one write you may ever make is a lessons candidate. Only a human writes that lane, through `$masterdevs-gold`.
+
 An empty findings list is valid. Do not write Playbook files; return candidates to the parent for serialized staging.

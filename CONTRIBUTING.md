@@ -64,9 +64,11 @@ suite goes red. This exists because a green suite can be worthless: an earlier v
 while missing the round cap — the single most important behavior it claimed to protect. Its targets
 are not only code: the shipped roster JSON and the skill files that read them are mutated too,
 because the Codex adapter once shipped Claude's roster values verbatim and nothing was watching the
-data. A mutation is normally a `[name, find, replace]` triple; use `[name, {add, contents}]` or
-`[name, {addDir}]` when the invariant is about a file or directory that must *not* exist, which
-find-and-replace cannot express. The harness refuses to run if a suite is already red on an
+data. A mutation is normally a `[name, find, replace]` triple, and it replaces **every** occurrence: a skill
+file states the same command in a table and again in the step that runs it, so breaking one of them
+leaves the assertion matching the survivor and the mutation reports MISSED while the behavior is still
+documented. Use `[name, {add, contents}]` or `[name, {addDir}]` when the invariant is about a file or
+directory that must *not* exist, which find-and-replace cannot express. The harness refuses to run if a suite is already red on an
 unmutated tree — every mutation would otherwise report `caught` for the wrong reason and the score
 would mean nothing. A stray untracked directory is the usual cause, and git reports one as neither
 a change nor something `git clean -f` removes.

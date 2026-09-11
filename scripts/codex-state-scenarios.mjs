@@ -107,14 +107,45 @@ try {
     assert.deepEqual(dirsOf('masterdevs-codex'), dirsOf('masterdevs'),
       'a Playbook seed directory exists in one adapter and not the other')
 
-    const shared = [
-      'scripts/playbook.mjs',
-      'scripts/preflight.mjs',
-      'references/interview.md',
-      'references/reporting.md',
-      ...sharedSeeds(claudeSeeds),
-    ]
-    assert.equal(shared.length, 17,
+    // Enumerated, not hand-listed. A hand-listed set only catches drift in files someone remembered
+    // to name: main added three references and a script to the Claude adapter and the Codex copies
+    // went missing, which a fixed list reads straight past. So take everything both adapters carry
+    // under these directories and pin the exceptions instead — the same shape the rosters use.
+    const filesIn = (plugin, dir) => {
+      const root = path.join(ROOT, 'plugins', plugin, dir)
+      if (!fs.existsSync(root)) return []
+      return filesUnder(root).map((file) => path.relative(path.join(ROOT, 'plugins', plugin), file))
+    }
+
+    // Host-specific by nature, so byte-identity is the wrong check for them.
+    //   codex-state.mjs  — the Codex run store; Claude keeps that state in feature-loop.js.
+    //   run-status.mjs   — reads the Claude adapter's run store, which Codex does not have.
+    //   upstream-submit.md — resolves paths through codex-state.mjs and names `$`-invoked skills.
+    const hostOwned = new Set([
+      path.join('scripts', 'codex-state.mjs'),
+      path.join('scripts', 'run-status.mjs'),
+      path.join('references', 'upstream-submit.md'),
+    ])
+    const portable = (plugin) => ['scripts', 'references']
+      .flatMap((dir) => filesIn(plugin, dir))
+      .filter((relative) => !hostOwned.has(relative))
+      .sort()
+
+    // Both directions again: a script added to one adapter and forgotten in the other is the exact
+    // drift that put Claude's gold lane into a release the Codex adapter could not run.
+    assert.deepEqual(portable('masterdevs-codex'), portable('masterdevs'),
+      'a portable script or reference exists in one adapter and not the other')
+
+    // Every excluded file must actually exist somewhere, or the exclusion is a typo that silently
+    // widens the check's blind spot the moment a real file takes that name.
+    for (const relative of hostOwned) {
+      assert.ok(fs.existsSync(path.join(ROOT, 'plugins/masterdevs', relative)) ||
+        fs.existsSync(path.join(ROOT, 'plugins/masterdevs-codex', relative)),
+        `${relative} is excluded from the byte-identity check but exists in neither adapter`)
+    }
+
+    const shared = [...portable('masterdevs'), ...sharedSeeds(claudeSeeds)]
+    assert.equal(shared.length, 23,
       'the shared list changed size — confirm the new file belongs in it, then update this count')
     for (const relative of shared) {
       const claude = fs.readFileSync(path.join(ROOT, 'plugins/masterdevs', relative))
@@ -475,6 +506,130 @@ try {
 
   // path.resolve normalizes "..", it does not follow a symlink, so a prefix check on unresolved paths
   // let a link planted inside the runs directory point anywhere on the filesystem.
+  // The gold lane arrived in the Claude adapter first and the Codex copy went missing entirely, so
+  // these hold the lane to the Codex runtime rather than to the file list of whichever adapter shipped
+  // it last.
+  scenario('the gold lane is seeded and its index rebuilt from the entries actually present', () => {
+    const playbookDir = invoke('paths', '--json').playbookDir
+    const goldDir = path.join(playbookDir, 'gold')
+    assert.ok(fs.existsSync(goldDir), 'bootstrap did not create the gold lane')
+
+    // copyMissing carries the shipped INDEX.md across verbatim and then never touches it again, so a
+    // later seed release would add entries the index does not list — and an architect picks which
+    // entries to open from that index, making an unlisted entry invisible rather than merely
+    // unindexed. Asserting the index is *generated* is what catches the reindex being dropped; the
+    // shipped file's own marker text is what proves it was not simply copied.
+    const index = fs.readFileSync(path.join(goldDir, 'INDEX.md'), 'utf8')
+    const shipped = fs.readFileSync(
+      path.join(ROOT, 'plugins/masterdevs-codex/playbook-seeds/gold/INDEX.md'), 'utf8')
+    assert.notEqual(index, shipped, 'the shipped index was copied, not rebuilt from the lane')
+
+    // The mechanism, not the empty-lane side effect: plant an entry, force a seed release, and the
+    // index must come back naming it.
+    fs.writeFileSync(path.join(goldDir, 'planted-example.md'), [
+      '---', 'id: planted-example', 'title: planted example', 'domain: core', 'kind: code',
+      'language: python', 'patterns: [Guard Clause]', 'lenses: [correctness]',
+      'scope: local', 'source: local', 'anchors:',
+      '  - {path: src/a.py, symbol: thing, sha: abc123}',
+      'not-this: none', 'provenance: planted by the scenario', '---', '',
+      '## Shows\n\nplaceholder.\n',
+    ].join('\n'))
+    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION.codex'), 'an-older-release\n')
+
+    invoke('paths', '--json')
+
+    assert.match(fs.readFileSync(path.join(goldDir, 'INDEX.md'), 'utf8'), /planted-example/,
+      'the gold index was not rebuilt after a seed release, so a shipped entry would stay invisible')
+    assert.ok(fs.existsSync(path.join(goldDir, 'planted-example.md')),
+      'a captured gold entry was removed by a seed release')
+
+    // Order, not just presence. The merge has to finish before the release is stamped: stamp first
+    // and a failed merge records itself as done, so the retry never happens and the lane stays
+    // half-built for as long as the release number holds. Make the index unwritable, and the stamp
+    // must still show the old release.
+    const indexPath = path.join(goldDir, 'INDEX.md')
+    fs.writeFileSync(path.join(playbookDir, 'SEED_VERSION.codex'), 'an-older-release\n')
+    fs.chmodSync(indexPath, 0o444)
+    let refused = false
+    try { invoke('paths', '--json') } catch { refused = true }
+    fs.chmodSync(indexPath, 0o644)
+    // A process that can write through a read-only bit (root, or a filesystem ignoring the mode)
+    // cannot make this point, and a scenario that quietly passes there is worse than one that says so.
+    if (refused) {
+      assert.equal(fs.readFileSync(path.join(playbookDir, 'SEED_VERSION.codex'), 'utf8').trim(),
+        'an-older-release',
+        'a failed gold merge still stamped the release, so the next phase would skip the retry')
+      invoke('paths', '--json')
+    } else {
+      assert.ok(process.getuid?.() === 0,
+        'the read-only index was written anyway and this process is not root — the injection no longer '
+        + 'exercises the failure path, so rewrite it rather than leaving the assertion unreachable')
+    }
+  })
+
+  scenario('the shared gold script names the command this host can actually run', () => {
+    // gold.mjs ships byte-identical into both adapters, so its user-facing output cannot hardcode
+    // either host's command form. The lane's whole rule is that a human captures entries — advice to
+    // run a command this runtime has no way to invoke is advice they cannot act on.
+    const run = (plugin) => execFileSync(process.execPath, [
+      path.join(ROOT, 'plugins', plugin, 'scripts/gold.mjs'), '--list',
+      '--gold-dir', path.join(ROOT, 'plugins', plugin, 'playbook-seeds/gold'),
+    ], { encoding: 'utf8' })
+
+    assert.match(run('masterdevs-codex'), /\$masterdevs-gold/,
+      'the Codex adapter tells its users to run a command Codex cannot invoke')
+    assert.doesNotMatch(run('masterdevs-codex'), /\/masterdevs:gold/,
+      'a Claude slash command survived in the Codex adapter output')
+    // Both directions, so the detection cannot be "always say Codex" and still pass.
+    assert.match(run('masterdevs'), /\/masterdevs:gold/,
+      'the Claude adapter lost its own command form')
+  })
+
+  scenario('every Codex skill that touches the gold lane treats it as human-written', () => {
+    const read = (skill, file = 'SKILL.md') =>
+      fs.readFileSync(path.join(ROOT, 'plugins/masterdevs-codex/skills', skill, file), 'utf8')
+
+    // Codex invokes skills as `$name`. A `/masterdevs:gold` left in from the Claude source is a
+    // command this runtime has no way to run, and it reads as a working instruction.
+    for (const [skill, file] of [['masterdevs-gold', 'SKILL.md'], ['masterdevs-architect', 'SKILL.md'],
+      ['masterdevs-engineer', 'SKILL.md'], ['masterdevs-reviewer', 'SKILL.md'],
+      ['masterdevs-playbook', 'SKILL.md'], ['masterdevs-feature', 'references/feature-loop.md']]) {
+      const text = read(skill, file)
+      assert.doesNotMatch(text, /\/masterdevs:/,
+        `${skill}/${file} names a Claude slash command this runtime cannot invoke`)
+      assert.doesNotMatch(text, /CLAUDE_PLUGIN_ROOT|CLAUDE_PLUGIN_DATA/,
+        `${skill}/${file} reads a Claude-only environment variable`)
+    }
+
+    // The lane has no candidate file and no recurrence gate, so "only a human writes it" is the whole
+    // gate. Each agent role has to carry that, or the first agent to find the directory fills it.
+    for (const skill of ['masterdevs-architect', 'masterdevs-engineer', 'masterdevs-reviewer']) {
+      assert.match(read(skill), /gold lane/i, `${skill} never mentions the gold lane`)
+      assert.match(read(skill), /\$masterdevs-gold/,
+        `${skill} must send gold captures to $masterdevs-gold, the lane's only writer`)
+    }
+    assert.match(read('masterdevs-architect'), /[Nn]ever hand the engineer a path or an id to open/,
+      'the architect may stop inlining gold excerpts, which fails silently in another worktree')
+    assert.match(read('masterdevs-engineer'), /quote a curated example/i,
+      'the engineer must implement from the quoted excerpt rather than opening the lane')
+
+    // Capture writes one lane and reindexes that lane. Reindexing the repo lane after a local capture
+    // creates an empty .masterdevs/gold in the user's checkout that they then have to notice.
+    const gold = read('masterdevs-gold')
+    assert.match(gold, /--reindex --scope local --playbook-dir/,
+      'the local capture path lost its reindex')
+    assert.match(gold, /--reindex --scope repo --repo-root/, 'the team capture path lost its reindex')
+    assert.match(gold, /--validate --gold-dir/, 'capture no longer validates what it wrote')
+    assert.match(gold, /codex-state\.mjs" paths --json/,
+      'the gold skill must resolve its paths through codex-state.mjs, not a hardcoded data directory')
+
+    // Pushing to a public repository is outward-facing and hard to reverse, so the scrub gate is not
+    // something a condensed port may drop.
+    assert.match(gold, /upstream-submit\.md/, 'the public destination lost its scrub gate reference')
+    assert.ok(fs.existsSync(path.join(ROOT, 'plugins/masterdevs-codex/references/upstream-submit.md')),
+      'the gold skill points at a submit reference this adapter does not ship')
+  })
+
   scenario('record refuses a symlink pointing out of the runs directory', () => {
     const runsDir = invoke('paths', '--json').runsDir
     const outside = path.join(scratch, 'outside-run')
