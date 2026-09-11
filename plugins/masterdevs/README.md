@@ -59,6 +59,7 @@ Priority hierarchy governing all generated code: **security > reliability/correc
 | `/masterdevs:review` | Just the review panel, over your current diff. Doesn't need a plan or a loop. |
 | `/masterdevs:playbook` | Review, promote, or prune staged pattern/lesson candidates — the only gate into promoted knowledge. |
 | `/masterdevs:roster` | Register a specialist reviewer (any installed plugin's agent) into the Review Panel. |
+| `/masterdevs:gold` | Capture a curated example of good code, an abstraction, or a design — and send it to the public repo, your team's repo, or just this machine. The only way entries get there. |
 
 The middle three are the loop's phases as standalone entry points. `/masterdevs:feature` is the front
 door and the one to reach for by default; the others exist for when you want one phase without the rest —
@@ -147,7 +148,7 @@ feature. Attention moved from after the handoff to before it. See
 
 ## The Playbook (self-learning)
 
-Agents share a knowledge base — per-domain **pattern catalogs** (detection recipes: a smell to match, an overfit guard to honor), per-lens **reviewer lessons**, and a **refactor backlog**. It learns in two lanes:
+Agents share a knowledge base — per-domain **pattern catalogs** (detection recipes: a smell to match, an overfit guard to honor) across `core`, `backend`, `frontend`, `data`, `algo`, `concurrency`, `integration`, `testing` and `infra`; per-lens **reviewer lessons**; and a **refactor backlog**. It learns in two lanes:
 
 - **Shipped seeds** live read-only in the plugin and are versioned. On update they **merge** into your data, never clobber.
 - **Learned state** lives in `~/.claude/plugins/data/masterdevs/` and survives updates.
@@ -155,6 +156,34 @@ Agents share a knowledge base — per-domain **pattern catalogs** (detection rec
 New patterns and lessons are **staged as candidates** with provenance. They only become promoted (loaded by agents) via recurrence ≥2 **or** your confirmation through `/masterdevs:playbook`. Ungated promotion is treated as a security-relevant action — a bad lesson would inject into every future agent.
 
 The `recurrence ≥2` half runs automatically at the start of every feature (`scripts/playbook.mjs --promote`, deterministic, no models), so **what one run learns, the next run knows.** It had to be built: for weeks that rule was policy with no code behind it, and 229 candidates accumulated — 16 already past the bar — while every promoted file still held its empty seed header and every agent started from zero. Learned entries land in a `## Learned` section, separate from the shipped taxonomy.
+
+### The gold lane (curated examples)
+
+A third lane, **gold**, holds curated examples: a piece of code, an abstraction, or a design worth copying. Entries resolve from three scopes — a repository's own `.masterdevs/gold/`, then your machine's `$PLAYBOOK_DIR/gold/`, then the shipped seeds — and **the repository's copy wins** an id collision, so a team can override anything.
+
+It differs from the other two lanes in three ways that matter:
+
+- **Human-write-only.** `/masterdevs:gold` is the only writer. Every agent reads the lane and cites entry ids; none may write, stage, or reindex it.
+- **No candidate stage and no recurrence gate.** An entry is live the moment it is captured — a human chose the example, and that *is* the gate.
+- **Self-contained.** Each entry snapshots the excerpt into itself, along with the file, symbol, and commit it came from, so an agent needs no access to the repository it was captured from. `scripts/gold.mjs --validate` reports an entry whose file has been deleted or renamed, or whose symbol has moved; `/masterdevs:playbook` mode 5 presents those for a human to re-anchor or retire. Because one lane serves every repository you work in, an anchor is judged only from a checkout that can actually see the commit it was captured at — run the check from an unrelated repository, or from a branch cut before the capture, and the entry is reported as unchecked rather than broken.
+
+### Keeping your team's lane honest in CI (optional)
+
+A repository lane is committed alongside your code, so it can go stale like any other reference to a file. If you want your own CI to catch that, add a step. It clones the plugin because the validator ships with the plugin, not with your repo:
+
+```yaml
+      - name: Curated examples still point at real code
+        run: |
+          git clone --depth 1 https://github.com/MasterDevs/masterclaude "$RUNNER_TEMP/masterclaude"
+          node "$RUNNER_TEMP/masterclaude/plugins/masterdevs/scripts/gold.mjs" \
+            --validate --gold-dir .masterdevs/gold --repo-root .
+```
+
+Two things make this work on a runner. `--gold-dir` names your lane so nothing resolves from the machine's Playbook, and `--repo-root .` says which checkout to judge the anchors against. **Fetch the full history** (`fetch-depth: 0` on `actions/checkout`) — a shallow clone will not contain the commits your entries were captured at, so every anchor reads as unchecked and the step passes without proving anything.
+
+References run **gold → pattern only** — an entry names the patterns it demonstrates, but a catalog never points back, so a row stays readable on its own.
+
+**Capture and contribution are one command.** `/masterdevs:gold` asks where an example goes as its *first* question — a pull request to this repo, your team's `.masterdevs/gold/`, or just this machine — because whether something is worth sharing is what a person knows at the moment they capture it, and asking later means asking never. The public answer scrubs a copy behind a gate that refuses on any hit and opens the pull request from a throwaway clone, so no checkout you work in is ever touched. `/masterdevs:playbook` mode 6 sends a promoted pattern or lesson the same way.
 
 The Playbook is **one store shared by every repo you run against** (22 worktrees feed this one), so a pattern earned in the backend is loaded by the next frontend run whose domain matches. Domain and lens routing keeps it relevant rather than noisy.
 

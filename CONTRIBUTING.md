@@ -46,12 +46,13 @@ codex plugin add masterdevs-codex@masterclaude-codex
 
 ## Tests
 
-Three suites are local and model-free. **Run all three before opening a PR.**
+Four suites are local and model-free. **Run all four before opening a PR.**
 
 ```bash
 node scripts/loop-scenarios.mjs      # control flow; -v prints agent sequences
 node scripts/mutation-check.mjs      # proves the scenarios actually catch things
 node scripts/codex-state-scenarios.mjs # Codex state and shared-asset parity
+node scripts/gold-checks.mjs         # the gold lane: scope precedence, validation, staleness, seed merge, scrub patterns
 ```
 
 `loop-scenarios.mjs` runs the **real** `feature-loop.js` against a stubbed agent layer, so every branch
@@ -74,6 +75,11 @@ a change nor something `git clean -f` removes.
 repository, keeps the protocols and Playbook assets copied into both distributable plugins
 byte-identical, and holds the Codex rosters to the Codex runtime — they name host-specific agents,
 so they are the one thing that must *not* match Claude's.
+
+`gold-checks.mjs` covers the gold lane end to end: which scope wins when an id is defined twice,
+what a malformed entry is rejected for, when an entry goes stale, how seeds merge into an existing
+Playbook without overwriting a user's edited copy, and what the scrub patterns catch before an entry
+leaves the machine.
 
 ### If you add behavior, add both
 

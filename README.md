@@ -69,6 +69,7 @@ Each phase runs in a **fresh context** seeded only by the previous phase's terse
 | `/masterdevs:review` | Just the review panel over your current diff. No plan or loop needed. |
 | `/masterdevs:playbook` | Curate what the agents have learned — promote, reject, or prune. |
 | `/masterdevs:roster` | Register a specialist reviewer into the review panel. |
+| `/masterdevs:gold` | Capture a curated example of good code, an abstraction, or a design — and send it to the public repo, your team's repo, or just this machine. The only way entries get there. |
 
 ## What makes it different
 
@@ -84,7 +85,7 @@ Each phase runs in a **fresh context** seeded only by the previous phase's terse
 >
 > ✅ Editing a tax rate makes that invoice recalculate from scratch on every view, permanently — no wrong numbers, just slow. *Recommend: follow-up ticket, don't hold the PR.*
 
-**It learns.** Agents stage patterns and lessons they discover; anything seen twice is promoted automatically into the knowledge every future agent loads. Nothing reaches that lane without recurrence or your explicit confirmation.
+**It learns.** Agents stage patterns and lessons they discover; anything seen twice is promoted automatically into the knowledge every future agent loads. Nothing reaches that lane without recurrence or your explicit confirmation. Alongside it, curated **examples** — code, abstractions, and designs worth copying — are captured by hand rather than learned, so the two mechanisms stay distinct: one earns its place by recurring, the other because you picked it.
 
 ## Requirements
 

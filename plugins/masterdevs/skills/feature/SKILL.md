@@ -23,8 +23,22 @@ The engine is a single RPI-style loop in one worktree — **Refine → Plan → 
 
 1. If `$PLAYBOOK_DIR` does **not** exist: copy the shipped seeds wholesale —
    `cp -R "$PLUGIN_ROOT/playbook-seeds/" "$PLAYBOOK_DIR"` — then write `$PLAYBOOK_DIR/SEED_VERSION` with the contents of `$PLUGIN_ROOT/playbook-seeds/VERSION`.
-2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` is missing, unreadable, or < shipped `VERSION`: **merge, don't clobber.** (A missing stamp means another adapter created this Playbook — treat it as older than shipped and merge into it. Never `cp -R` over a `$PLAYBOOK_DIR` that already exists.) Create any seed file that is absent entirely. For each seed `catalog.md`/roster that does exist, add only entries whose pattern/name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
-3. Ensure candidate staging files exist (create empty with headers if missing): `patterns/<domain>/candidates.md` and `lessons/<lens>.candidates.md`.
+2. If `$PLAYBOOK_DIR` exists and `SEED_VERSION` is missing, unreadable, or < shipped `VERSION`: **merge, don't clobber.** (A missing stamp means another adapter created this Playbook — treat it as older than shipped and merge into it. Never `cp -R` over a `$PLAYBOOK_DIR` that already exists.) Create any seed file that is absent entirely. For each existing seed `catalog.md`, `lessons/<lens>.md` and roster, add only entries whose pattern name, lesson text or roster name is **absent** from the user's file; never modify or delete existing rows (they may carry learned edits). Lessons are included deliberately: a lesson merged upstream is a promoted entry in `lessons/<lens>.md`, and skipping that file would leave it stranded in the shipped seeds forever. Then update `SEED_VERSION`. Handle multi-version jumps (auto-update is off for third-party marketplaces).
+
+   **Gold entries merge as whole files**, keyed by `<id>.md`. One command does the whole thing —
+   creates the lane if it is missing, copies in only ids the user does not already have, and refreshes
+   the index:
+
+   ```
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --merge-seeds --playbook-dir "$PLAYBOOK_DIR"
+   ```
+
+   It never overwrites an entry that is already there, and reports what it declined to touch. Do not
+   hand-roll a `cp` for this: an id names **one** curated example, a user's edited copy under a shipped
+   id has to survive byte-for-byte, and a Playbook seeded before this lane existed has no `gold/`
+   directory to copy into. Then update `SEED_VERSION` as above; the multi-version-jump note applies to
+   gold too.
+3. Ensure candidate staging files exist (create empty with headers if missing): `patterns/<domain>/candidates.md` (including the two newest domains, `patterns/testing/candidates.md` and `patterns/infra/candidates.md`) and `lessons/<lens>.candidates.md`. Create `gold/` empty if it is absent — gold has no candidate file, because entries are human-written and live on capture.
 4. **Close the learning loop before this run's agents load anything:**
 
    ```

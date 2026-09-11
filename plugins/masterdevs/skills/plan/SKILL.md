@@ -24,6 +24,18 @@ The Architect needs a clear target or it plans the wrong thing.
 `VERSION`. If it exists but has no `SEED_VERSION`, another adapter created it: fill in only the seed
 files that are absent and write `SEED_VERSION`, rather than copying over what is already there.
 
+If it already exists and `SEED_VERSION` is behind, merge the gold lane in too. One command, safe to
+re-run — it creates the lane if absent, adds only ids the user lacks, never overwrites an edited entry,
+and refreshes the index:
+
+```
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gold.mjs --merge-seeds --playbook-dir "$PLAYBOOK_DIR"
+```
+
+Both this command and `/masterdevs:feature` create `$PLAYBOOK_DIR`, and the merge rules used to be
+written out in prose in both places. They drifted. The command above is now the one copy — call it,
+don't restate it.
+
 ## Step 3 — Run the Architect
 
 One `masterdevs:architect` agent on `opus`. Give it the settled ask, the Playbook root, and the

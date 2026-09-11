@@ -1,0 +1,37 @@
+{
+  "requiredFrontmatter": [
+    "id",
+    "title",
+    "domain",
+    "kind",
+    "language",
+    "patterns",
+    "lenses",
+    "scope",
+    "source",
+    "anchors",
+    "not-this",
+    "provenance"
+  ],
+  "mayBeEmpty": ["patterns", "lenses", "not-this"],
+  "kinds": {
+    "code": {
+      "sections": ["Example", "Why it is good", "Reuse when", "When not to"]
+    },
+    "abstraction": {
+      "sections": ["Contract", "One conforming instance", "Why it is good", "Reuse when", "When not to"]
+    },
+    "design": {
+      "sections": ["Structure", "Seams quoted", "Why it is good", "Reuse when", "When not to"]
+    }
+  },
+  "scopes": ["repo", "local", "seeds"],
+  "sources": ["seed", "contributed", "local", "repo"],
+  "firstSection": "Shows",
+  "excerptLineBudget": {
+    "code": 60,
+    "abstraction": 60,
+    "design": 200
+  },
+  "indexSplitLines": 150
+}
