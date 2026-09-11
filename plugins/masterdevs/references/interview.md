@@ -28,15 +28,29 @@ Otherwise, interview.
    ```
    Below ~70%, say what's unresolved. This shows them exactly what the interview needs to close.
 
-2. **Ask one question at a time, each carrying your guess.**
+2. **Ask one question at a time, each carrying your guess and what the answer decides.**
    ```
-   Q: <one focused question>
+   Q:     <one focused question, in the user's own words>
    GUESS: <your hypothesis for the answer, and why>
+   SO:    <what changes depending on how they answer — what they get, or give up>
    ```
    Wait for the answer before the next question. One at a time, not batched — later questions depend on
    earlier answers, and people correct a wrong guess far faster than they compose an answer from
    nothing. Attaching your guess is what makes that work; it also exposes your assumptions while they're
    still cheap to fix.
+
+   **Never name the question after the field it fills.** You know the answer lands in `not-this` or
+   `verifyOn`; the user does not, and a field name as the subject of a question is a question only you
+   can answer. Ask for the thing in the words they would use, and put the field name nowhere.
+
+   **`SO:` is what makes the guess acceptable.** A recommendation the user cannot evaluate is not a
+   default, it is a coin flip they are being asked to call. One sentence naming the consequence turns a
+   one-word `y` from compliance into a decision. Say what the *other* answer costs when that is the
+   clearer half — "answer `none` and future readers only see the right version, never the tempting
+   wrong one" tells them more than praising the recommended answer does.
+
+   Both rules fail the same way and it is invisible from the inside: the question reads fine to whoever
+   wrote it, because they already know what the answer is for.
 
 3. **Probe convention-signalling.** When you hear "it should be scalable", "the standard approach", "I
    should probably…" — that's deference to norms, not a requirement. Ask: *"If you didn't have to
@@ -45,8 +59,10 @@ Otherwise, interview.
 4. **Settle what proves it worked — and on what data.** Ask this one explicitly, every time. It is the
    single most common thing a finished run turns out not to have been able to answer for itself.
    ```
-   Q: How will we know this actually worked — and what data can that be checked against?
+   Q:     How will we know this actually worked — and what data can that be checked against?
    GUESS: <the check you'd run, and where the data for it lives>
+   SO:    this is what the run executes at the end. Name something unreachable from here and the run
+          reports the criterion unproven instead of failing on it.
    ```
    Real runs end with *"confirmed only against the local database, which holds a single deal"* and
    *"needs real customer deal data that does not exist locally."* By then it's too late to ask.
@@ -93,6 +109,7 @@ The confirmed seven-field restate is the deliverable. It travels as `intent`.
 | "I'll figure it out while building" | The agents that build can't ask. That's the whole constraint |
 | "They said 'whatever you think'" | That's delegation, not a decision. Re-ask with two concrete options |
 | "Attaching my guess leads them" | Leading is the point; being visibly willing to be wrong is the mitigation |
+| "The question is obviously clear" | It is clear to you because you know which field it fills. Name the thing, not the field, and say what the answer changes |
 | "I'll just note it as an assumption" | Assumptions surface as conflicts hours later, when they're expensive |
 | "The tests will prove it" | Tests prove the code does what the code says. Ask what data shows the *user's* problem is solved |
 | "I'll find the right fixture while building" | The agents that build can't ask which deal to use, and will substitute one |
