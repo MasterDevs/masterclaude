@@ -55,8 +55,10 @@ exactly as written, with the placeholders filled in from the repo. The `SO:` lin
 flip they are being asked to call, and six of those turn a two-minute capture into an interview they
 cannot answer.
 
-None of these six may be named after the field it fills. The user does not know what `not-this` or an
-anchor is, and does not need to — they know their own code.
+None of these six may be named after a field whose meaning comes from the schema. The user does not know
+what `not-this` or an anchor is, and does not need to — they know their own code. A field whose name is
+also an ordinary English word is fine: question 4 is called **Title** because that is what a person would
+call it, not because `title` is a frontmatter key.
 
 ## The six questions
 
@@ -126,7 +128,7 @@ That reference carries its own approval gates — the tracker-id question, the f
 confirmed upstream target. **Those are not part of the six-question budget.** Pushing to a public
 repository is an outward-facing, hard-to-reverse action, so it is gated separately and on purpose.
 
-### 2. Kind and domain `[recommend: <kind> / <domain>]` — y to accept, or type an override
+### 2. What is this an example of, and what work does it belong to? `[recommend: <kind> / <domain>]` — y to accept, or type an override
 
 > **SO:** the kind picks which sections the entry is written in — a well-shaped piece of code, a
 > contract, and a structure each need different things said about them. The domain decides which
@@ -249,12 +251,11 @@ the reason none of the schema is restated here.
 the excerpt is their own code, so reprinting several hundred lines they already know buries the one
 thing they need, which is where it went. Show enough to confirm the right thing was captured, and stop.
 
-**Hard cap: 10 lines of output, counting every line below.** Use exactly this shape, so the preview is
-skimmable rather than prose:
+**Hard cap: 10 lines — every line capture prints at the end, this block included.** Use this shape:
 
 ```
   <absolute path to the entry file>
-  <id> · <kind>/<domain> · <n> anchor(s): <file>·<symbol>, …
+  <id> · <kind>/<domain> · from <n> place(s): <file>·<symbol>, …
   Shows — <the ## Shows sentence, one line, truncated to fit>
   ┌ <first line of the first excerpt>
   │ <second line>
@@ -262,10 +263,11 @@ skimmable rather than prose:
   └ … +<n> more lines · say `show` for the whole entry
 ```
 
-Put the path on its own line, first, so the terminal makes it clickable. When something must give to
-stay inside ten lines, drop excerpt lines before anything else — the path, the id line and `Shows` are
-the three that carry the confirmation. Truncate long lines rather than wrapping them; a wrapped line
-costs two of the ten.
+Put the path on its own line, first, so the terminal makes it clickable. That shape is seven lines,
+which leaves three. Spend them on more excerpt lines, or — on the **public**
+path — on the pull request line, which counts against the ten like everything else. When something must
+give, drop excerpt lines first: the path, the id line and `Shows` are the three that carry the
+confirmation. Truncate long lines rather than wrapping them, since a wrapped line costs two of the ten.
 
 Offer `show` and honor it; never volunteer the body. On the **public** path, add the pull request URL —
 and say plainly that a maintainer's review, not this command, decides whether it ships.
@@ -278,10 +280,17 @@ and say plainly that a maintainer's review, not this command, decides whether it
   patterns and lessons — a human chose this example, which *is* the gate.
 - **Never write anything under `${CLAUDE_PLUGIN_ROOT}`.** It is wiped on plugin update.
 - **Preview the entry in ten lines or fewer; never dump the body** — report the path and let the user
-  open it if they want more. The review that
-  matters is on the way *out*, not on the way in: a captured entry lands on the user's own machine or in
-  their own repository, holding code they just chose. The gate that guards other people is the full
-  scrubbed diff in `references/upstream-submit.md`, before any push, and it is not optional. 
+  open it if they want more. Be accurate about what that trades away: the preview shows `Shows` and the
+  first excerpt lines, so the prose *you* wrote — `not-this`, the kind's sections — goes unread unless
+  the user asks. The excerpt is their own code and the local lane never leaves the machine, so on the
+  **local** path that is a fair trade.
+- **On the `team` path, say what they are about to commit.** That lane is committed to a shared
+  repository, keeps internal names verbatim by design, and that repository may be public. End the
+  preview's last line with `show` before you commit it rather than the plain offer, so the one review
+  before it reaches other people is not skipped by default.
+- **The gate that guards people outside the team is the full scrubbed diff** in
+  `references/upstream-submit.md`, before any push. It is unchanged by any of the above and is not
+  optional. 
 - **Refuse to capture an excerpt containing a credential, token, private key, or key-shaped string.**
   Say what you found and ask for a different excerpt; do not redact and proceed. This is the one content
   check that runs at capture time, because it protects the user from their own repository rather than

@@ -713,20 +713,29 @@ check('gold/SKILL.md — every question is asked in the user\'s words and says w
     const nextIdx = rest.search(/\n### |\n## Write the entry/)
     return rest.slice(0, nextIdx === -1 ? undefined : nextIdx)
   })
-  // Field names the schema fills. A question may mention one in its rules; it may not be the subject
-  // of the heading the user reads.
-  const fieldNames = /\b(not-this|anchors?|patterns\[\]|lenses|frontmatter)\b/i
+  // Every required frontmatter key, read from the schema rather than typed here — a hand-kept list is
+  // how `kind` and `domain` sat in two headings while this check passed. Subtracted: the keys that are
+  // also ordinary English, which a person would use unprompted. `title` is the whole exemption, and it
+  // is named rather than inferred so widening it is a visible edit.
+  // `title` and `patterns` are both what a person would say unprompted — this plugin's users talk about
+  // pattern catalogs, so "Which catalog patterns does this demonstrate?" is the product's word, not a
+  // key leaking into a question. Everything else in the schema is jargon until argued otherwise here.
+  const ORDINARY = new Set(['title', 'patterns'])
+  const schema = JSON.parse(fs.readFileSync(
+    path.join(ROOT, 'plugins/masterdevs/references/gold-schema.json'), 'utf8'))
+  const jargon = schema.requiredFrontmatter.filter((f) => !ORDINARY.has(f))
+  const fieldNames = new RegExp(`\\b(${jargon.join('|').replace(/[[\]]/g, '\\$&')}|anchor)\\b`, 'i')
   return [
     [heads.length === 6, `expected six questions — found ${heads.length}`],
     [heads.every((h) => !fieldNames.test(h.split('`[recommend:')[0])),
       'no question may be named after the field it fills — ' +
       `offending: ${heads.filter((h) => fieldNames.test(h.split('`[recommend:')[0]))
         .map((h) => h.slice(0, 44)).join(' | ') || 'none'}`],
-    [blocks.every((b) => /\*\*SO:\*\*/.test(b)),
-      'every question must state what the answer decides — ' +
-      `${blocks.filter((b) => !/\*\*SO:\*\*/.test(b)).length} of 6 have no SO: line`],
-    [/references\/interview\.md/.test(text),
-      'and the shape must be credited to the shared protocol, not restated as a local rule'],
+    // Near the top of its own question, not merely present somewhere below. A consequence the user
+    // reaches only after scrolling past the rules is one they answer without.
+    [blocks.every((b) => /\*\*SO:\*\*/.test(b.split('\n').slice(0, 12).join('\n'))),
+      'every question must state what the answer decides, within its first 12 lines — ' +
+      `${blocks.filter((b) => !/\*\*SO:\*\*/.test(b.split('\n').slice(0, 12).join('\n'))).length} of 6 do not`],
     // Capture reports where the entry went; it does not reprint what the user just dictated. The
     // review that protects other people is the scrubbed diff before a push, which lives in the
     // upstream reference — so removing the body dump must not remove that one with it.
@@ -734,14 +743,37 @@ check('gold/SKILL.md — every question is asked in the user\'s words and says w
     // to — "keep it short" is what produced the several-hundred-line report in the first place.
     [/10 lines/.test(text) && /[Nn]ever dump the body|never the whole entry/i.test(text),
       'capture must preview the entry under a stated line cap, not reprint it'],
-    [/say `show` for the whole entry/.test(text),
-      'and must offer the full body on request rather than assuming nobody wants it'],
+    // The shape has to FIT the cap it is printed under. A seven-line block beneath a ten-line cap read
+    // as licence for three more excerpt lines; a block that outgrew the cap would be worse.
+    [(() => {
+      const fence = text.slice(text.indexOf('**Hard cap: 10 lines'))
+      const body = fence.slice(fence.indexOf('```') + 3)
+      return body.slice(0, body.indexOf('```')).trim().split('\n').length <= 10
+    })(), 'and the prescribed shape must itself fit inside that cap'],
+    [/counts against the ten/.test(text),
+      'and anything capture adds afterwards must count against it, or the public path escapes the cap'],
+    // The rename is only real if the word stays out of what the user actually sees. The preview is the
+    // one place this skill prints prose to them, and it printed `<n> anchor(s)` while question 3 said
+    // never to say it.
+    [(() => {
+      const fence = text.slice(text.indexOf('**Hard cap: 10 lines'))
+      const body = fence.slice(fence.indexOf('```') + 3)
+      return !/anchor/i.test(body.slice(0, body.indexOf('```')))
+    })(), 'and the preview must not print the word question 3 was renamed to avoid'],
+    // The template line alone satisfied this; the instruction to honor it is the part that matters.
+    [/say `show` for the whole entry/.test(text) && /[Oo]ffer `show` and honor it/.test(text),
+      'and must offer the full body on request AND be told to honor it'],
     [/on its own line, first/.test(text),
       'and put the path first on its own line, so the terminal makes it clickable'],
+    // The team lane is committed to a shared repository and keeps internal names on purpose, so the
+    // "it stays on your machine" reasoning does not cover it. Dropping the body review there needs its
+    // own answer, not the local one restated.
+    [/`team` path/.test(text) && /shared\n?\s*repository/.test(text),
+      'and must say what a team capture is about to commit — that lane is not private'],
     [/scrubbed diff/.test(text) && /upstream-submit\.md/.test(text),
       'and must still point at the pre-push diff gate, which is the review that guards anyone else'],
-    [/credential, token, private key/.test(text),
-      'and must still refuse an excerpt carrying a credential — the one check that runs at capture'],
+    [/credential, token, private key/.test(text) && /do not redact and proceed/.test(text),
+      'and must still refuse — not redact — an excerpt carrying a credential'],
   ]
 })
 
