@@ -245,17 +245,29 @@ If validation reports anything, **fix the entry and re-run before reporting succ
 authoritative — that is the mechanism that stops this prose template drifting from the schema, and it is
 the reason none of the schema is restated here.
 
-**Do not print the entry body.** The user just answered six questions about it and the excerpt is their
-own code — reprinting several hundred lines they already know buries the one thing they need, which is
-where it went. Report the absolute path on its own line so the terminal makes it clickable, then the id
-and the anchors:
+**Print a bounded preview — never the whole entry.** The user just answered six questions about it and
+the excerpt is their own code, so reprinting several hundred lines they already know buries the one
+thing they need, which is where it went. Show enough to confirm the right thing was captured, and stop.
+
+**Hard cap: 10 lines of output, counting every line below.** Use exactly this shape, so the preview is
+skimmable rather than prose:
 
 ```
-$PLAYBOOK_DIR/gold/<id>.md
-<id> — <n> anchor(s): <file>·<symbol>, …   ·   say `show` to print it here
+  <absolute path to the entry file>
+  <id> · <kind>/<domain> · <n> anchor(s): <file>·<symbol>, …
+  Shows — <the ## Shows sentence, one line, truncated to fit>
+  ┌ <first line of the first excerpt>
+  │ <second line>
+  │ <third line>
+  └ … +<n> more lines · say `show` for the whole entry
 ```
 
-Offer `show` and honor it; do not volunteer the body. On the **public** path, add the pull request URL —
+Put the path on its own line, first, so the terminal makes it clickable. When something must give to
+stay inside ten lines, drop excerpt lines before anything else — the path, the id line and `Shows` are
+the three that carry the confirmation. Truncate long lines rather than wrapping them; a wrapped line
+costs two of the ten.
+
+Offer `show` and honor it; never volunteer the body. On the **public** path, add the pull request URL —
 and say plainly that a maintainer's review, not this command, decides whether it ships.
 
 ## Rules
@@ -265,7 +277,8 @@ and say plainly that a maintainer's review, not this command, decides whether it
 - **A captured entry is live immediately.** There is no candidate stage and no recurrence gate, unlike
   patterns and lessons — a human chose this example, which *is* the gate.
 - **Never write anything under `${CLAUDE_PLUGIN_ROOT}`.** It is wiped on plugin update.
-- **Never print the entry body unasked** — report the path and let the user open it. The review that
+- **Preview the entry in ten lines or fewer; never dump the body** — report the path and let the user
+  open it if they want more. The review that
   matters is on the way *out*, not on the way in: a captured entry lands on the user's own machine or in
   their own repository, holding code they just chose. The gate that guards other people is the full
   scrubbed diff in `references/upstream-submit.md`, before any push, and it is not optional. 

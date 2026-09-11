@@ -730,8 +730,14 @@ check('gold/SKILL.md — every question is asked in the user\'s words and says w
     // Capture reports where the entry went; it does not reprint what the user just dictated. The
     // review that protects other people is the scrubbed diff before a push, which lives in the
     // upstream reference — so removing the body dump must not remove that one with it.
-    [/[Nn]ever print the entry body unasked/.test(text),
-      'capture must report the path, not reprint the body the user just specified'],
+    // A preview, not a dump, and not nothing. The cap has to be a stated number the prompt can be held
+    // to — "keep it short" is what produced the several-hundred-line report in the first place.
+    [/10 lines/.test(text) && /[Nn]ever dump the body|never the whole entry/i.test(text),
+      'capture must preview the entry under a stated line cap, not reprint it'],
+    [/say `show` for the whole entry/.test(text),
+      'and must offer the full body on request rather than assuming nobody wants it'],
+    [/on its own line, first/.test(text),
+      'and put the path first on its own line, so the terminal makes it clickable'],
     [/scrubbed diff/.test(text) && /upstream-submit\.md/.test(text),
       'and must still point at the pre-push diff gate, which is the review that guards anyone else'],
     [/credential, token, private key/.test(text),
