@@ -41,7 +41,7 @@ For Codex, use the shell commands below and then start a new instance. The compl
 
 ```bash
 codex plugin marketplace add /absolute/path/to/masterclaude
-codex plugin add masterdevs-codex@masterclaude-codex
+codex plugin add masterdevs@masterclaude-codex
 ```
 
 ## Tests

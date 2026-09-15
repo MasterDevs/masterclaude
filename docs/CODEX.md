@@ -8,11 +8,11 @@ Use a second terminal so the Codex process starts after the plugin is installed.
 
 ```bash
 codex plugin marketplace add /absolute/path/to/masterclaude
-codex plugin add masterdevs-codex@masterclaude-codex
+codex plugin add masterdevs@masterclaude-codex
 codex plugin list
 ```
 
-The last command should show `masterdevs-codex@masterclaude-codex` as installed and enabled. Then launch a new Codex instance in a disposable or real feature branch:
+The last command should show `masterdevs@masterclaude-codex` as installed and enabled. Then launch a new Codex instance in a disposable or real feature branch:
 
 ```bash
 codex -C /absolute/path/to/the/repository-you-want-to-change
@@ -81,10 +81,10 @@ The directory is created private to you. An existing one is left exactly as you 
 Codex installs a snapshot into its plugin cache. A running instance does not automatically pick up skill or manifest changes. Close the test instance, then refresh the local installation:
 
 ```bash
-codex plugin remove masterdevs-codex@masterclaude-codex
+codex plugin remove masterdevs@masterclaude-codex
 codex plugin marketplace remove masterclaude-codex
 codex plugin marketplace add /absolute/path/to/masterclaude
-codex plugin add masterdevs-codex@masterclaude-codex
+codex plugin add masterdevs@masterclaude-codex
 ```
 
 Start a new Codex instance after reinstalling.

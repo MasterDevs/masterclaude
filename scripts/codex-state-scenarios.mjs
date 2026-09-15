@@ -567,6 +567,38 @@ try {
     }
   })
 
+  scenario('the installed plugin name agrees across its manifests and the install docs', () => {
+    // `codex plugin add` takes <plugin name>@<marketplace>, and the name comes from the manifests —
+    // not from the directory, which deliberately keeps its `-codex` suffix so the two adapters stay
+    // obvious side by side. Nothing at install time reconciles the two, so a rename that misses one
+    // manifest, or misses the docs, fails only for the person following the README.
+    const read = (rel) => JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'))
+    const market = read('.agents/plugins/marketplace.json')
+    const manifest = read('plugins/masterdevs-codex/.codex-plugin/plugin.json')
+    const entry = market.plugins.find((plugin) => plugin.source?.path === './plugins/masterdevs-codex')
+    assert.ok(entry, 'no marketplace entry points at the Codex plugin directory')
+    assert.equal(entry.name, manifest.name,
+      'the marketplace and the plugin manifest disagree on the plugin name')
+
+    // Derived from the manifest, never hardcoded: a literal here would have to be edited in lockstep
+    // with the thing it is checking, which is the failure it exists to catch.
+    const installed = `${manifest.name}@${market.name}`
+    for (const doc of ['README.md', 'CONTRIBUTING.md', 'docs/CODEX.md']) {
+      const text = fs.readFileSync(path.join(ROOT, doc), 'utf8')
+      const commands = [...text.matchAll(/codex plugin (?:add|remove) (\S+)/g)].map(([, arg]) => arg)
+      if (!commands.length) continue
+      for (const arg of commands) {
+        assert.equal(arg, installed,
+          `${doc} tells users to install ${arg}, but this plugin installs as ${installed}`)
+      }
+    }
+
+    // The directory is load-bearing for every path in this suite and in CI, so pin that it did NOT
+    // get renamed along with the plugin. Both halves moving together is the mistake this catches.
+    assert.ok(fs.existsSync(path.join(ROOT, 'plugins/masterdevs-codex/.codex-plugin/plugin.json')),
+      'the Codex plugin directory moved — every path in CI and this suite is written against it')
+  })
+
   scenario('the shared gold script names the command this host can actually run', () => {
     // gold.mjs ships byte-identical into both adapters, so its user-facing output cannot hardcode
     // either host's command form. The lane's whole rule is that a human captures entries — advice to

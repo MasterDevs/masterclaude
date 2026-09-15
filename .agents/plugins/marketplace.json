@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "masterdevs-codex",
+      "name": "masterdevs",
       "source": {
         "source": "local",
         "path": "./plugins/masterdevs-codex"

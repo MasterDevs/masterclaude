@@ -15,7 +15,7 @@ The Codex adapter can be tested directly from a checkout:
 
 ```bash
 codex plugin marketplace add /absolute/path/to/masterclaude
-codex plugin add masterdevs-codex@masterclaude-codex
+codex plugin add masterdevs@masterclaude-codex
 codex -C /absolute/path/to/your/feature-repository
 ```
 

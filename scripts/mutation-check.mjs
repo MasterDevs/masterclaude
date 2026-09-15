@@ -191,6 +191,9 @@ const LOOP_DOC = path.join(CODEX, 'skills/masterdevs-feature/references/feature-
 const SHARED_CATALOG = path.join(CODEX, 'playbook-seeds/patterns/core/catalog.md')
 const REVIEWER_AGENT = path.join(CODEX, 'skills/masterdevs-reviewer/agents/openai.yaml')
 const GOLD_SKILL = path.join(CODEX, 'skills/masterdevs-gold/SKILL.md')
+const CODEX_MANIFEST = path.join(CODEX, '.codex-plugin/plugin.json')
+const CODEX_MARKETPLACE = path.join(ROOT, '.agents/plugins/marketplace.json')
+const CODEX_README = path.join(ROOT, 'README.md')
 const ARCHITECT_SKILL = path.join(CODEX, 'skills/masterdevs-architect/SKILL.md')
 const SHARED_GOLD_SCRIPT = path.join(CODEX, 'scripts/gold.mjs')
 
@@ -369,6 +372,22 @@ const PORTABLE_PARITY_MUTATIONS = [
     { add: 'plugins/masterdevs-codex/scripts/codex-only.mjs', contents: 'export default 1\n' }],
 ]
 
+// The installed plugin name lives in two manifests and is retyped in three docs' install commands.
+// Nothing at install time reconciles them, so drift fails only for the person following the README.
+const PLUGIN_NAME_MUTATIONS = [
+  ['the manifests disagree on the installed plugin name',
+    '"name": "masterdevs",', '"name": "masterdevs-codex",'],
+]
+const MARKETPLACE_NAME_MUTATIONS = [
+  ['the marketplace entry names a plugin its manifest does not',
+    '"name": "masterdevs",', '"name": "masterdevs-renamed",'],
+]
+const INSTALL_DOC_MUTATIONS = [
+  ['the install command names a plugin that no longer exists',
+    'codex plugin add masterdevs@masterclaude-codex',
+    'codex plugin add masterdevs-codex@masterclaude-codex'],
+]
+
 const TARGETS = [
   { name: 'feature-loop', src: LOOP_SRC, suite: 'scripts/loop-scenarios.mjs', mutations: MUTATIONS },
   { name: 'codex-state', src: STATE_SRC, suite: 'scripts/codex-state-scenarios.mjs', mutations: STATE_MUTATIONS },
@@ -389,6 +408,9 @@ const TARGETS = [
   { name: 'codex-architect-gold', src: ARCHITECT_SKILL, suite: 'scripts/codex-state-scenarios.mjs', mutations: ARCHITECT_GOLD_MUTATIONS },
   { name: 'codex-shared-gold-script', src: SHARED_GOLD_SCRIPT, suite: 'scripts/codex-state-scenarios.mjs', mutations: SHARED_GOLD_SCRIPT_MUTATIONS },
   { name: 'codex-portable-parity', src: null, suite: 'scripts/codex-state-scenarios.mjs', mutations: PORTABLE_PARITY_MUTATIONS },
+  { name: 'codex-plugin-name', src: CODEX_MANIFEST, suite: 'scripts/codex-state-scenarios.mjs', mutations: PLUGIN_NAME_MUTATIONS },
+  { name: 'codex-marketplace-name', src: CODEX_MARKETPLACE, suite: 'scripts/codex-state-scenarios.mjs', mutations: MARKETPLACE_NAME_MUTATIONS },
+  { name: 'codex-install-docs', src: CODEX_README, suite: 'scripts/codex-state-scenarios.mjs', mutations: INSTALL_DOC_MUTATIONS },
 ]
 // A target with no src only creates and removes files; it never edits one.
 for (const target of TARGETS) {

@@ -1,6 +1,6 @@
-# masterdevs-codex
+# masterdevs (Codex adapter)
 
-This is the Codex-native adapter for MasterDevs. It packages explicit `$masterdevs-*` skills, internal Architect/Engineer/Reviewer role skills, shared interview and reporting protocols, preflight, and a self-learning Playbook with three lanes — pattern catalogs, reviewer lessons, and a gold lane of curated examples a human captured.
+This is the Codex-native adapter for MasterDevs. It installs as `masterdevs@masterclaude-codex` and ships from `plugins/masterdevs-codex/` — the directory keeps the `-codex` suffix so the two adapters stay obvious side by side, while the installed plugin is named for the product. It packages explicit `$masterdevs-*` skills, internal Architect/Engineer/Reviewer role skills, shared interview and reporting protocols, preflight, and a self-learning Playbook with three lanes — pattern catalogs, reviewer lessons, and a gold lane of curated examples a human captured.
 
 The full entry point is `$masterdevs-feature`. Standalone entry points are `$masterdevs-refine`, `$masterdevs-plan`, `$masterdevs-review`, `$masterdevs-playbook`, `$masterdevs-roster`, and `$masterdevs-gold`.
 
