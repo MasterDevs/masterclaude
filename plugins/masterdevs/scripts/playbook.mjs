@@ -194,7 +194,8 @@ for (const lane of lanes) {
       }
       writeFile(lane.promoted, promotedText)
     }
-    // Anything promoted (or unpromotable) leaves the candidate file; the rest stays staged.
+    // Promoted entries leave the candidate file. Unpromotable ones stay staged with everything else,
+    // so a human can still see and settle them.
     const promotedTitles = new Set(eligible.filter((e) => !unpromotable.includes(e.title)).map((e) => e.title))
     const remaining = scored.filter((e) => !promotedTitles.has(e.title))
     writeFile(lane.candidates, `${header}\n${remaining.map((e) => `## ${e.title}\n${e.body}`).join('\n\n')}\n`)

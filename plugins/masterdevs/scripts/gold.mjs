@@ -57,6 +57,13 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA = JSON.parse(fs.readFileSync(path.join(HERE, '../references/gold-schema.json'), 'utf8'))
 const SEEDS_DEFAULT = path.resolve(HERE, '../playbook-seeds/gold')
 
+// This file ships byte-identical into both adapters, so a hardcoded `/masterdevs:gold` in user-facing
+// output tells a Codex user to run a command their host has no way to invoke — and the lane's whole
+// rule is that a human captures entries, which is not a rule they can follow from a command that does
+// not exist. The plugin manifest directory is what names the host, so read it rather than guessing.
+const SKILL = (name) => fs.existsSync(path.join(HERE, '../.codex-plugin'))
+  ? `$masterdevs-${name}` : `/masterdevs:${name}`
+
 // Failure-tolerant shell, same shape as preflight.mjs: a non-repo cwd is normal here, not an error.
 const sh = (cmd, opts = {}) => {
   try {
@@ -446,7 +453,7 @@ const doList = () => {
   if (broken.length) console.log(`\n  ${broken.length} file(s) could not be parsed — run --validate to see why.`)
   console.log(hits.length
     ? `\n  Read one with: cat <gold dir>/<id>.md\n`
-    : '\n  Capture one with /masterdevs:gold — it is the only writer of this lane.\n')
+    : `\n  Capture one with ${SKILL('gold')} — it is the only writer of this lane.\n`)
   process.exit(0)
 }
 
@@ -490,7 +497,7 @@ const doValidate = () => {
   }
   footer()
   console.log(problems.length
-    ? '  Re-anchor or retire each one with /masterdevs:playbook (mode 5).\n'
+    ? `  Re-anchor or retire each one with ${SKILL('playbook')} (mode 5).\n`
     : '  Every entry is well-formed and every anchor this checkout could judge still resolves.\n')
   process.exit(problems.length ? 1 : 0)
 }

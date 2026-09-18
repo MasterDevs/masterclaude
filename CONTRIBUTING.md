@@ -3,7 +3,7 @@
 Thanks for looking. This is a small project with strong opinions about evidence — most of what's here
 exists because a real run went badly and the data said so.
 
-## Read this first: the two halves load differently
+## Read this first: adapters load differently
 
 **This will bite you.** The plugin has two halves, and they can silently disagree:
 
@@ -11,6 +11,7 @@ exists because a real run went badly and the data said so.
 |---|---|---|
 | `workflows/feature-loop.js` | read from disk at invocation | edits take effect on the **next run** |
 | `skills/*/SKILL.md`, `agents/*.md` | loaded into the Claude Code session at start | edits do nothing until a **new session** |
+| `plugins/masterdevs-codex/` | copied into the Codex plugin cache at install | edits require a **reinstall and new Codex instance** |
 
 It has already caused a real problem: three shipped versions of skill-side work sat dormant for a day
 while the workflow half ran current code. Every run looked healthy. The only tell was `interviewed:
@@ -36,13 +37,21 @@ Install your working copy as a local marketplace to test it:
 /plugin install masterdevs@masterclaude
 ```
 
+For Codex, use the shell commands below and then start a new instance. The complete walkthrough is in [`docs/CODEX.md`](./docs/CODEX.md).
+
+```bash
+codex plugin marketplace add /absolute/path/to/masterclaude
+codex plugin add masterdevs@masterclaude-codex
+```
+
 ## Tests
 
-Three suites, all free and instant. **Run all three before opening a PR.**
+Four suites are local and model-free. **Run all four before opening a PR.**
 
 ```bash
 node scripts/loop-scenarios.mjs      # control flow; -v prints agent sequences
 node scripts/mutation-check.mjs      # proves the scenarios actually catch things
+node scripts/codex-state-scenarios.mjs # Codex state and shared-asset parity
 node scripts/gold-checks.mjs         # the gold lane: scope precedence, validation, staleness, seed merge, scrub patterns
 ```
 
@@ -50,9 +59,29 @@ node scripts/gold-checks.mjs         # the gold lane: scope precedence, validati
 executes in milliseconds with no models and no repo. It catches the class of bug that is otherwise
 invisible until a two-hour run ends in the wrong state.
 
-`mutation-check.mjs` deliberately breaks the loop 42 ways and asserts the suite goes red. This exists
-because a green suite can be worthless: an earlier version passed 12/12 while missing the round cap —
-the single most important behavior it claimed to protect.
+`mutation-check.mjs` deliberately breaks a source file one way at a time and asserts the matching
+suite goes red. This exists because a green suite can be worthless: an earlier version passed 12/12
+while missing the round cap — the single most important behavior it claimed to protect. Its targets
+are not only code: the shipped roster JSON and the skill files that read them are mutated too,
+because the Codex adapter once shipped Claude's roster values verbatim and nothing was watching the
+data. A mutation is normally a `[name, find, replace]` triple, and it replaces **every** occurrence: a skill
+file states the same command in a table and again in the step that runs it, so breaking one of them
+leaves the assertion matching the survivor and the mutation reports MISSED while the behavior is still
+documented. Use `[name, {add, contents}]` or `[name, {addDir}]` when the invariant is about a file or
+directory that must *not* exist, which find-and-replace cannot express. The harness refuses to run if a suite is already red on an
+unmutated tree — every mutation would otherwise report `caught` for the wrong reason and the score
+would mean nothing. A stray untracked directory is the usual cause, and git reports one as neither
+a change nor something `git clean -f` removes.
+
+`codex-state-scenarios.mjs` exercises the provider-owned Codex run store in a temporary git
+repository, keeps the protocols and Playbook assets copied into both distributable plugins
+byte-identical, and holds the Codex rosters to the Codex runtime — they name host-specific agents,
+so they are the one thing that must *not* match Claude's.
+
+`gold-checks.mjs` covers the gold lane end to end: which scope wins when an id is defined twice,
+what a malformed entry is rejected for, when an entry goes stale, how seeds merge into an existing
+Playbook without overwriting a user's edited copy, and what the scrub patterns catch before an entry
+leaves the machine.
 
 ### If you add behavior, add both
 

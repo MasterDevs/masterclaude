@@ -1,0 +1,6 @@
+interface:
+  display_name: "MasterDevs Architect"
+  short_description: "Design and fact-check implementation plans"
+  default_prompt: "Use $masterdevs-architect to produce a repository-grounded implementation plan."
+policy:
+  allow_implicit_invocation: false

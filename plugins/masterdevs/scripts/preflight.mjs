@@ -58,12 +58,23 @@ if (top.code !== 0) {
   process.exit(0)
 }
 const ROOT = top.out
+// In a linked worktree ".git" is a file pointing at the real git dir, so path.join(ROOT, '.git', …)
+// throws ENOTDIR and every check that reads a git file silently reports "missing". Ask git instead.
+// `--git-common-dir` answers relative to the current directory, so ask it from ROOT and resolve there.
+const GIT_DIR = (() => {
+  const r = sh('git rev-parse --git-common-dir', { cwd: ROOT })
+  return r.code === 0 && r.out ? path.resolve(ROOT, r.out) : path.join(ROOT, '.git')
+})()
 
 // ── Branch ─────────────────────────────────────────────────────────────────
 const branch = sh('git rev-parse --abbrev-ref HEAD').out
 // origin/HEAD is the reliable answer; fall back to whichever of main/master exists.
 let def = sh('git symbolic-ref --quiet --short refs/remotes/origin/HEAD').out.replace(/^origin\//, '')
 if (!def) def = ['main', 'master'].find((b) => sh(`git rev-parse --verify --quiet refs/heads/${b}`).code === 0) || 'main'
+// def is interpolated into shell commands below and originates from a remote ref, which the
+// repository controls. Anything but a plain ref name is not worth running — and a name that STARTS
+// with "-" is read by git as an option, not a ref, so the first character is constrained separately.
+if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(def) || def.includes('..')) def = 'main'
 
 if (branch === 'HEAD') {
   warn('branch', 'detached HEAD', 'check out a feature branch before starting')
@@ -94,7 +105,7 @@ const remoteDef = `origin/${def}`
 if (sh(`git rev-parse --verify --quiet refs/remotes/${remoteDef}`).code === 0) {
   const behind = parseInt(sh(`git rev-list --count HEAD..${remoteDef}`).out || '0', 10)
   const fetchedAt = (() => {
-    try { return fs.statSync(path.join(ROOT, '.git', 'FETCH_HEAD')).mtime } catch { return null }
+    try { return fs.statSync(path.join(GIT_DIR, 'FETCH_HEAD')).mtime } catch { return null }
   })()
   const staleDays = fetchedAt ? Math.floor((Date.now() - fetchedAt.getTime()) / 86400000) : null
   const age = staleDays == null ? 'never fetched' : `last fetched ${staleDays}d ago`

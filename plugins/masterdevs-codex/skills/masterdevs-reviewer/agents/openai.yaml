@@ -1,0 +1,6 @@
+interface:
+  display_name: "MasterDevs Reviewer"
+  short_description: "Review a diff without modifying it"
+  default_prompt: "Use $masterdevs-reviewer to review the supplied diff against its intent."
+policy:
+  allow_implicit_invocation: false

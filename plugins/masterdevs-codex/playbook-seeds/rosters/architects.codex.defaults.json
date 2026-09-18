@@ -1,0 +1,7 @@
+[
+  { "lens": "frontend", "roleSkill": "masterdevs-architect", "catalogs": ["core", "frontend"] },
+  { "lens": "backend", "roleSkill": "masterdevs-architect", "catalogs": ["core", "backend", "concurrency"] },
+  { "lens": "data", "roleSkill": "masterdevs-architect", "catalogs": ["core", "data"] },
+  { "lens": "algo", "roleSkill": "masterdevs-architect", "catalogs": ["core", "algo"] },
+  { "lens": "integration", "roleSkill": "masterdevs-architect", "catalogs": ["core", "integration", "concurrency"] }
+]
