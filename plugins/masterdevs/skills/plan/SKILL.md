@@ -38,7 +38,7 @@ don't restate it.
 
 ## Step 3 — Run the Architect
 
-One `masterdevs:architect` agent on `opus`. Give it the settled ask, the Playbook root, and the
+One `masterdevs:architect` agent on `fable`. Give it the settled ask, the Playbook root, and the
 instruction to resolve the design — inline the concrete guidance per step so an engineer never has to
 open the pattern catalog.
 

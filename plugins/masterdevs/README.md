@@ -73,7 +73,8 @@ Routed per phase by what the phase actually demands:
 
 | Phase | Model | Why |
 |---|---|---|
-| Plan, Implement, Review | `opus` | design decisions, multi-file reasoning, adversarial judgment |
+| Plan | `fable` | the one phase that reads the whole repo with the design in view; every later phase inherits its calls |
+| Implement, Review | `opus` | multi-file reasoning, adversarial judgment |
 | Refine, Refactor, Verify, Iterate, Polish | `sonnet` | bounded, mechanical, or already-specified work |
 
 When a step crosses a sensitivity tripwire — auth, crypto/secrets, payments, PII, access control, trust boundaries — the Architect flags it in the plan so the engineer and reviewer both treat it as must-not-break.

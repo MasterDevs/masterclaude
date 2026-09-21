@@ -530,7 +530,7 @@ if (startFrom === 'implement') {
     `drifts from the first.\n\n` +
     CLAIMS_RULE + `\n` +
     (planFilePath ? `Also write a concise human-readable plan to ${planFilePath}, ending with the EXACT structured result in a fenced \`\`\`json block (so the approved plan can be reloaded, and a human can edit it before approving).\n` : ``),
-    { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'opus' }
+    { label: 'plan', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'fable' }
     ),
     () => agent(
       `You are checking whether a feature's success criteria can be satisfied AT ALL, before anyone ` +
@@ -621,7 +621,7 @@ if (startFrom === 'implement') {
       `correction, so do not simply patch the wording. Leave steps that did not depend on them byte-identical. ` +
       `Return the COMPLETE revised plan.\n\n` + CLAIMS_RULE + `\n` +
       (planFilePath ? `Rewrite ${planFilePath} with the revised plan, same format as before.\n` : ``),
-      { label: 'plan:revised', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'opus' }
+      { label: 'plan:revised', phase: 'Plan', schema: PLAN_SCHEMA, agentType: 'masterdevs:architect', model: 'fable' }
     )
     if (!revised || !revised.steps || !revised.steps.length) break
     plan = revised
