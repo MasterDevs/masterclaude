@@ -77,6 +77,8 @@ Routed per phase by what the phase actually demands:
 | Implement, Review | `opus` | multi-file reasoning, adversarial judgment |
 | Refine, Refactor, Verify, Iterate, Polish | `sonnet` | bounded, mechanical, or already-specified work |
 
+**When a model runs out of usage credits.** An agent that gets no answer from its model makes the run say so instead of crashing. If the Plan gets no answer on `fable`, it is asked once more on `opus`. If a step the run cannot skip still gets no answer, the run stops and names that step; resume it later and the finished steps are reused. A check that never answered (a review, a verification) is listed in `agentFailures`, and the run cannot report `passed` while any are listed.
+
 When a step crosses a sensitivity tripwire — auth, crypto/secrets, payments, PII, access control, trust boundaries — the Architect flags it in the plan so the engineer and reviewer both treat it as must-not-break.
 
 ## The report you get back
@@ -116,6 +118,49 @@ whether runs were interviewed, which is the cheapest way to catch this from the 
 
 ## While it runs
 
+### The live status pane
+
+When this session starts a run (planning or building), a **MasterDevs** pane opens beside the chat. It does not take the keyboard, and it redraws every five seconds with no model calls.
+
+```
+MasterDevs · Implement · step 3 of 7 · running · 6m 12s
+ETA ~5:40 PM (5:25 PM–6:10 PM, from 28 past runs)
+last progress 4s ago
+next: Refactor → Verify ∥ Review → Iterate → another round (only if blocking findings) → Polish (if needed)
+
+ENGINEER · implement:1                          ELAPSED 2m 14s
+Step 3 of 7 · Add the shortcut listener
+Read oil_pricing.py                                 5:10:27 PM
+Edit oil_pricing.py                                 5:10:44 PM
+Write test_oil_pricing.py                           5:11:02 PM
+Run unit tests — failed                             5:11:20 PM
+Edit oil_pricing.py                                 5:11:58 PM
+Run unit tests …                                    5:12:03 PM
+```
+
+- **Which plan step is being built.** While the build runs, the headline reads `Implement · step 3 of 7`, and the engineer's section names the step. The engineer marks each step as it starts it; a later round counts its fixes the same way (`fix 1 of 2`).
+- **One section per live agent.** Parallel Verify and Review agents each get their own section. A retry is a new section.
+- **Six lines per agent, newest at the bottom.** A new action enters at the bottom; once six are shown, the oldest leaves at the top. No new action means no new line. Long lines are cut, not wrapped.
+- **Lines come from what the agent actually did.** Each line uses the tool, the file name, and the agent's own short description of the call. Every agent is asked to describe each shell command in plain words, 10 or fewer. When one does not, the pane says what the command is doing from its shape (`Read files and search the code`, `Run tests`), never the command itself. Commands, code, prompts, and raw results are never shown. A line ending in `…` has not finished yet. A failed call says so. The time at the right is when the action began, in local time, so a line that stays put says how long it has been running. A narrow pane leaves the time out.
+- **"(sampled)"** next to an agent means its tool calls could not be observed directly. The lines then come from the run record, checked every five seconds, so some actions may be missing.
+- **Time is honest.** A finished run shows its recorded duration. "Last progress" is the age of the newest recorded progress, not of the last redraw. A long quiet spell is reported as "no recorded progress", not as a stall. There is no percent complete.
+- **The ETA is a range from your past runs, in local time.** It takes past runs on this machine that reached the same phase, and shows when they usually finished: the middle time, then the range most of them fell in. A planning run shows "plan ready" instead. Fewer than three past runs means "ETA unknown". A run already past the usual range says so instead of guessing a new time. To learn these times, the pane reads only the timing of this machine's past runs, about once a day, and never shows anything else from them.
+- **Only this session's run.** The pane never shows a run that another session started.
+- **Live from the start.** Claude Code writes a run's full record only when the run ends. While it runs, the pane reads the run's live journal instead.
+
+The 5-minute heartbeat line does not include the ETA.
+
+**Opening and closing**
+
+- Type `/masterdevs-status` to open the pane at any time, even mid-turn.
+- When a run ends, the pane closes by itself: when the plan is ready for your approval, when the run has questions for you, and when the build loop is done. The result is in the chat. Once you approve and the build starts, it opens again. Reopen it with `/masterdevs-status`, and it stays open.
+- Close the pane yourself, and it stays closed for the rest of this session. `/masterdevs-status` opens it again.
+- On a narrow terminal (under 144 columns), Claude Code holds back a pane that opens by itself. A one-line hint above the prompt then points to `/masterdevs-status`.
+
+### The 5-minute heartbeat
+
+The heartbeat still runs. It works where the pane cannot, for example on a surface that does not show panes.
+
 A status line posts every ~5 minutes, and it exists for one purpose: letting you stop a run that is heading somewhere wrong. So it reports what the agents are actually doing, not that they are busy.
 
 ```
@@ -133,8 +178,10 @@ The design makes a falsifiable claim — front-loading your attention buys unint
 costing quality — so it ships with the instruments to check it:
 
 ```bash
-node scripts/run-report.mjs        # unplanned stops per feature, from real runs
-node scripts/loop-scenarios.mjs    # control-flow regression test, free and instant
+node scripts/run-report.mjs           # unplanned stops per feature, from real runs
+node scripts/loop-scenarios.mjs       # control-flow regression test, free and instant
+node scripts/run-status-scenarios.mjs # status pane and status line model, free and instant
+claude plugin test plugins/masterdevs # status pane inside an offline Claude Code host
 ```
 
 `run-report.mjs` reads workflow state Claude Code already writes, so every feature you run is a free

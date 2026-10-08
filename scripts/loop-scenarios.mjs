@@ -97,11 +97,13 @@ async function drive(args, responder) {
   const schemas = {}
   const prompts = {}          // every prompt by label, for scenarios asserting on more than one
   const agentTypes = {}       // which agent definition each call loads — that file carries standards
+  const models = {}           // which model each call asked for
   const agent = async (prompt, opts) => {
     calls.push(opts.label)
     schemas[opts.label] = opts.schema
     prompts[opts.label] = prompt
     agentTypes[opts.label] = opts.agentType
+    models[opts.label] = opts.model
     const out = await responder(opts.label, prompt)
     // null is a legal agent result (the workflow handles it); anything else must match the contract.
     if (out != null && opts.schema) schemaErrors.push(...validate(out, opts.schema, opts.label))
@@ -110,7 +112,7 @@ async function drive(args, responder) {
   const parallel = async (thunks) =>
     Promise.all(thunks.map(async (t) => { try { return await t() } catch { return null } }))
   const result = await wf(args, agent, parallel, () => {}, () => {}, undefined)
-  return { calls, result, schemaErrors, schemas, prompts, agentTypes }
+  return { calls, result, schemaErrors, schemas, prompts, agentTypes, models }
 }
 
 const rounds = (calls) => calls.filter((c) => /^implement:\d+$/.test(c)).length
@@ -641,6 +643,114 @@ const scenarios = [
     expect: ({ calls }) => [
       [calls.includes('load-approved'), 'must load the approved artifacts when not handed them'],
       [calls.includes('roster'), 'must read the roster when not handed it'],
+    ],
+  },
+  {
+    // The live status pane shows each agent's shell commands through the description the call carries;
+    // an agent never asked for one leaves the pane guessing. Every agent that runs commands is asked.
+    name: 'every agent that runs shell commands is asked to describe them in plain words',
+    args: { ...LOOP_ARGS, approved: undefined, startFrom: 'refine' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? PLAN : l === 'check-criteria' ? critOk
+      : l.startsWith('verify-plan') ? claimsOk : null),
+    expect: ({ prompts }) => ['refine', 'check-criteria', 'verify-plan:1'].map((l) =>
+      [/Give every shell command a `description`/.test(prompts[l] || ''), `${l} must be asked to describe its commands`]),
+  },
+  {
+    name: 'build agents are asked to describe their shell commands too',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') ? impl : l.startsWith('refactor') ? refac : l.startsWith('verify') ? vpass
+        : l.startsWith('review') ? find(['low']) : iter({}),
+    expect: ({ prompts }) => ['implement:1', 'refactor:1', 'verify:1.0', 'review:reviewer:1'].map((l) =>
+      [/Give every shell command a `description`/.test(prompts[l] || ''), `${l} must be asked to describe its commands`]),
+  },
+  {
+    // The pane can only say "step 3 of 7" if the engineer says which step it started, in the one
+    // shape the pane accepts, with the plan's real step count.
+    name: 'the build agent is told to mark each plan step, and each fix in a later round',
+    args: LOOP_ARGS,
+    responder: (() => {
+      let round = 0
+      return (l) => {
+        if (l.startsWith('implement')) return impl
+        if (l.startsWith('refactor')) return refac
+        if (l.startsWith('verify')) return vpass
+        if (l.startsWith('review')) return (++round === 1) ? find(['high']) : find([])
+        return round === 1 ? iter({ decision: 'continue', mustFix: ['close the dialog on Escape', 'debounce the key'] }) : iter({})
+      }
+    })(),
+    expect: ({ prompts }) => [
+      [prompts['implement:1'].includes('/run/progress/implement-1-<k>.txt'), 'round 1 must name its progress file'],
+      [prompts['implement:1'].includes('"Step <k> of 1: <its title>"'), 'round 1 must count the plan steps'],
+      [/1\. t$/m.test(prompts['implement:1']), 'the steps must be listed with their titles'],
+      [prompts['implement:2'].includes('"Fix <k> of 2: <its title>"'), 'round 2 must count its fixes'],
+    ],
+  },
+  {
+    name: 'a standalone run with no run folder asks for no step markers',
+    args: { ...LOOP_ARGS, runDir: undefined },
+    responder: (l) => l.startsWith('implement') ? impl : l.startsWith('refactor') ? refac : l.startsWith('verify') ? vpass
+      : l.startsWith('review') ? find([]) : iter({}),
+    expect: ({ prompts }) => [[!/Progress: the user follows/.test(prompts['implement:1']), 'no folder, no marker']],
+  },
+  // ── a model that stops answering (out of usage credits, or any terminal API error) ──
+  // agent() returns null then. These pin that the run says so plainly instead of throwing, and that a
+  // check which never ran is never counted as one that passed.
+  {
+    name: 'Plan gets no answer on the strongest model — asked once more on opus, run carries on',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'plan' ? null : l === 'plan (retry 1)' ? PLAN
+      : l === 'check-criteria' ? critOk : l.startsWith('verify-plan') ? claimsOk : null),
+    expect: ({ result, calls, models }) => [
+      [result.outcome === 'awaiting-plan-approval', `the fallback plan should reach the gate, got ${result.outcome}`],
+      [calls.includes('plan (retry 1)'), 'the Plan must be retried once'],
+      [models['plan'] === 'fable' && models['plan (retry 1)'] === 'opus', 'the retry must move to the fallback model'],
+      [result.agentFailures.includes('plan'), 'the gate must say the strongest model gave no plan'],
+    ],
+  },
+  {
+    name: 'Plan gets no answer on either model — stops with a plain outcome, not a crash',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: (l) => (l === 'refine' ? REFINE : l === 'check-criteria' ? critOk : null),
+    expect: ({ result, calls }) => [
+      [result.outcome === 'error' && result.reason === 'no-answer', `got ${result.outcome}/${result.reason}`],
+      [result.failedAgent === 'plan', `the stop must name the agent, got ${result.failedAgent}`],
+      [/usage credits/.test(result.notes) && /resume/.test(result.notes), 'the notes must name the likely cause and the way back'],
+      [calls.filter((c) => c.startsWith('plan')).length === 2, 'exactly one retry, not a loop'],
+      [!calls.some((c) => c.startsWith('verify-plan')), 'nothing may fact-check a plan that does not exist'],
+    ],
+  },
+  {
+    name: 'Refine gets no answer — stops before planning',
+    args: { brief: 'b', playbookDir: '/pb', runDir: '/run' },
+    responder: () => null,
+    expect: ({ result, calls }) => [
+      [result.outcome === 'error' && result.failedAgent === 'refine', `got ${result.outcome}/${result.failedAgent}`],
+      [calls.length === 1, `nothing may run after the failed Refine, ran ${calls.join(', ')}`],
+    ],
+  },
+  {
+    name: 'a reviewer that never answered is not a clean review',
+    args: LOOP_ARGS,
+    responder: (l) =>
+      l.startsWith('implement') ? impl :
+      l.startsWith('refactor') ? refac :
+      l.startsWith('verify') ? vpass :
+      l.startsWith('review') ? null : iter({}),
+    expect: ({ result }) => [
+      [result.verifyPassed === true && result.unresolvedBlocking.length === 0, 'every other signal must be green'],
+      [result.outcome === 'needs-attention', `a missing review must not read as passed, got ${result.outcome}`],
+      [result.agentFailures.includes('review:reviewer:1'), 'the result must name the review that did not happen'],
+    ],
+  },
+  {
+    name: 'Implement gets no answer — stops and keeps what earlier agents reported',
+    args: LOOP_ARGS,
+    responder: () => null,
+    expect: ({ result, calls }) => [
+      [result.outcome === 'error' && result.failedAgent === 'implement:1', `got ${result.outcome}/${result.failedAgent}`],
+      [Array.isArray(result.changedFiles), 'the stop must still carry changedFiles'],
+      [calls.length === 1, `nothing may run after the failed Implement, ran ${calls.join(', ')}`],
     ],
   },
 ]

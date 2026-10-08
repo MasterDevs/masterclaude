@@ -15,6 +15,10 @@ Apply independent passes for:
 - Design: interacting branches, cold-readability failures, duplication, and missed reuse. Do not suppress real medium/low design findings merely because correctness findings are more urgent.
 - Tests: missing critical, edge, or failure-path coverage introduced by the change.
 
+For readability findings, identify what the reader must mentally unpack in a dense expression mixing decisions, transformations, and data construction. Suggest named intermediate values, explicit control flow, or a function capturing a coherent responsibility, preserving evaluation order and conditional execution. Recommend lookup dispatch or helper extraction only when clearer than explicit branches or inline steps. Do not request mechanical splitting of trivial expressions or helpers that merely scatter the flow. Report a concrete comprehension or maintenance consequence, not a stylistic preference; these findings are usually medium/low unless there is a separate correctness defect.
+
+For naming findings, identify the obscured distinction: identifier versus index or object, collection versus accumulator, map contents and key, units, aggregation scope, or inconsistent domain terminology. Check that business rules, missing-data policies, and assumptions are visible through names and explicit steps, with comments explaining why when needed. Accept established abbreviations that are clear in context. Report a concrete comprehension or maintenance consequence; do not demand preferred synonyms, redundant type suffixes, or an entire rule encoded in a name.
+
 Report only defects with a concrete consequence. Return JSON:
 
 ```json

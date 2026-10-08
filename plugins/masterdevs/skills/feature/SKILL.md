@@ -85,18 +85,21 @@ Pass `intent` whenever you interviewed. Refine then treats scope as settled and 
 
 This call runs **Refine → Plan (∥ check the success criteria) → fact-check the plan**, then **stops**. It returns either:
 - `{outcome: "needs-clarification", openQuestions, requirementsPath, criteriaIssues?}` — something must be settled before anything is built. Either Refine found a contradiction *in the code* the interview couldn't have anticipated, or (when `criteriaIssues` is present) **the success criteria themselves cannot be satisfied**: two of them contradict, or one names a target correct code can never produce — classically a number that is the *current, buggy* output. Present the questions plainly, get the user's answer, and re-run with the corrected criteria folded into the brief. Do not talk them past this; a criterion that can't be met poisons the whole run.
-- `{outcome: "awaiting-plan-approval", summary, stepCount, claimChecks, criteriaIssues, planRevised, dataSource, requirementsPath, planPath, outputTokens}` — the plan is ready for review.
+- `{outcome: "awaiting-plan-approval", summary, stepCount, claimChecks, criteriaIssues, planRevised, agentFailures, dataSource, requirementsPath, planPath, outputTokens}` — the plan is ready for review. If `agentFailures` is non-empty, say which check got no answer: its silence is not a pass. `plan` in that list means the strongest model gave no plan and the fallback model wrote this one.
+- `{outcome: "error", reason: "no-answer", failedAgent, notes}` — see **When a model stops answering** below.
+
+**When a model stops answering.** An agent that gets no answer from its model (most often: out of usage credits for that model) stops the run with `outcome: "error"`, `reason: "no-answer"` and the agent's name in `failedAgent`. The Plan is first retried once on a fallback model, so this reaches you only when that also failed. Tell the user in one line which step stopped and the likely cause, and quote the run log's `[<failedAgent>] failed: …` line if `/workflows` shows it. Recommend: fix the credits or switch models, then relaunch with `resumeFromRunId` (same script, same args) so finished agents replay from cache instead of re-running.
 
 ## Step 5 — Plan approval gate (STOP — the last interruption before the run goes dark)
 
 Do this **in the same sitting as the interview**. The user's attention is already here; sending them away and pulling them back costs another context load.
 
-Read `planPath` (and `requirementsPath` for context). Summarize the plan — the design approach, the steps, the resolved patterns, and the success criteria Verify will check — and ask the user to **approve, edit, or reject**. Human edits to `plan.md` win (the next call re-reads the file, so their edits are authoritative). Do not proceed until approved.
+Read `planPath` (and `requirementsPath` for context), then read `${CLAUDE_PLUGIN_ROOT}/references/reporting.md` and follow its **Plan previews** guidance. Choose the smallest useful form for this plan; sentences and diagrams are optional. Include compact decision and verification notes and a link to the full plan. Keep the full steps, resolved patterns, and acceptance criteria in the artifact. Ask the user to **approve, edit, or reject**. Human edits to `plan.md` win (the next call re-reads the file, so their edits are authoritative). Do not proceed until approved.
 
 **Surface what the plan assumed but couldn't confirm.** The workflow fact-checks the plan's claims about the code before you ever see it, and returns `claimChecks`:
 
 - **`unverifiable`** — say these out loud, every one. The plan is proceeding on an assumption nobody could settle from this checkout ("the production count was never checked"). This is the cheapest moment in the whole run to resolve one, and often the user simply knows the answer.
-- **`refuted`** — already handled: the plan was sent back and revised once (`planRevised: true`). Mention in one line that it was corrected and what changed, so the user knows the plan they're reading isn't the first draft.
+- **`refuted`** — check the final verdicts: a revision attempt (`planRevised: true`) does not prove the claim was resolved. Surface any still-refuted claim and its consequence. If a correction changed the proposed design, mention the change briefly.
 - **`verified`** — a count, not a list.
 
 Also state `dataSource` in one line — what the verification will actually run against. If it says the data isn't reachable here, that's a decision the user should make now, not read about at the end. Any `criteriaIssues` that reach this point are `unverifiable` ones — say which criterion can't be proven here and what would settle it.
@@ -123,7 +126,7 @@ Workflow({
 })
 ```
 
-The call returns a **run id** immediately. **Post a status line to this chat every ~5 minutes while the loop runs** — this cadence is a deliberate user requirement, not completion-polling:
+The call returns a **run id** immediately. The plugin's live status pane opens on its own and shows each agent's recent actions every five seconds; tell the user once that `/masterdevs-status` opens it if they do not see it. The pane does not replace the heartbeat. **Post a status line to this chat every ~5 minutes while the loop runs** — this cadence is a deliberate user requirement, not completion-polling:
 
 1. Record the start time and the run id.
 2. Schedule the next check ~5 minutes out with `ScheduleWakeup` (`delaySeconds: 300`, a `reason` like "masterdevs 5-min status update", and a `prompt` that re-enters this status step for this run id).
@@ -151,10 +154,11 @@ The call returns a **run id** immediately. **Post a status line to this chat eve
 
 If this session is closed, the 5-minute posts stop but the run keeps going — catch up via `/workflows` or the completion notification. (The quick Refine+Plan call and the approval gate are **not** wrapped in this heartbeat — only this long loop is.)
 
-When the loop returns `{outcome, iterations, changedFiles, verifyPassed, suiteGreen, verifyNeedsApproval, conflicts, escalations, punted, polishApplied, deferred, unresolvedBlocking, requirementsPath, planPath, outputTokens}`, three fields may need you mid-flight:
+When the loop returns `{outcome, iterations, changedFiles, verifyPassed, suiteGreen, verifyNeedsApproval, conflicts, escalations, punted, polishApplied, deferred, unresolvedBlocking, agentFailures, requirementsPath, planPath, outputTokens}` (or the `no-answer` stop above), these fields may need you mid-flight:
 - **`conflicts` non-empty** — the loop found revisions that clash with the requirements/plan and **stopped there**, because only a human can settle them. Present each (`finding` vs. `conflictsWith`) and ask how to resolve; on the user's decision, re-run this call with that decision in the brief. Note that the loop ended early, so remaining work may still be outstanding.
 - **`escalations` non-empty** — an agent hit something the plan didn't predict: a file not shaped as described, a missing dependency, an approach that would break existing behavior. If `outcome` is `blocked`, work stopped there. Otherwise the agent found a way forward and kept going — surface these anyway, since a human should confirm the path it chose.
 - **`impossibleCriteria` non-empty** — Verify found that a success criterion **cannot be met by correct code**: the target itself is wrong (typically a number that turns out to be the pre-fix value). The loop stopped immediately rather than throwing engineers at it. Present the criterion and what Verify found, and get a corrected criterion before re-running — **re-running with the same criteria repeats the whole cost for the same result.** This has happened: one feature spent 5.8M tokens across two full loops on criteria that were internally contradictory the entire time.
+- **`agentFailures` non-empty** — these agents got no answer from their model, so their checks did not happen (a missing review is not a clean review). The run cannot report `passed` while any are listed. Name them under **Needs you**, with the same cause and resume advice as above.
 - **`verifyNeedsApproval` non-empty** — Verify declined to run risky/destructive steps (e.g. an infra apply, an external mutation). Surface them; the user runs or authorizes them out of band.
 
 ## Step 7 — Report
@@ -164,7 +168,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/reporting.md` and follow it. That file ow
 Feature-run specifics on top of it:
 
 - **Bottom line** is framed against the success criteria from the confirmed intent — not against `outcome: "passed"`.
-- **Needs you** draws from `conflicts`, `escalations`, `verifyNeedsApproval`, and `unresolvedBlocking`. Each gets a recommendation and a stated default.
+- **Needs you** draws from `conflicts`, `escalations`, `verifyNeedsApproval`, `unresolvedBlocking`, and `agentFailures`. Each gets a recommendation and a stated default.
 - **For the record** covers `polishApplied` (say plainly: regression-checked, **not** re-reviewed — that trade is deliberate), `punted` (the backlog this run generated), `deferred`, and any escalations the agents resolved themselves. One line each.
 - **`suiteGreen` is the worktree fingerprint the full test suite last passed on.** It speaks only for the suite — `verifyPassed` covers the live criteria. Do not re-run the suite in this session (before a push, in a pre-push check, when asked "are the tests green?") without first recomputing the fingerprint and comparing: `IDX="$(mktemp -u)"; GIT_INDEX_FILE="$IDX" git add -A >/dev/null && GIT_INDEX_FILE="$IDX" git write-tree; rm -f "$IDX"` (leaves the worktree and real index untouched — stages into a throwaway index). Match → the suite result stands; say so instead of re-running. No match (new edits, a merge, a rebase) → a re-run is justified. A full suite is minutes of wall clock; re-running it on an unchanged tree was one of the largest measured time costs of this loop.
 - **Stats line:** wall clock, agents, `outputTokens`, artifact paths (`requirementsPath` / `planPath`), and the **interruption count** for this feature — interview and plan gate included. That last number is the metric this design optimizes, so it belongs in every report.

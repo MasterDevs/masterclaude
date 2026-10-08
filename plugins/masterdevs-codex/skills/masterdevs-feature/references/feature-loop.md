@@ -65,12 +65,14 @@ Write a readable plan artifact ending in the exact plan JSON inside a fenced `js
 
 ## 5. Approval gate
 
-Record `phase=Plan status=awaiting-approval`. Present:
-
-- the approach and ordered steps;
-- the success criteria and real verification data source;
-- every unverifiable criterion or plan claim;
-- a count of verified claims and a brief note about any corrected claim.
+Record `phase=Plan status=awaiting-approval`. Read `$PLUGIN_ROOT/references/reporting.md` and use its
+**Plan previews** guidance. Choose the smallest useful form for this plan; sentences and diagrams
+are optional. Include compact decision and verification notes and a link to the full plan.
+Keep ordered implementation steps and complete
+acceptance criteria in the artifact. Name the real verification data source, surface every
+unverifiable criterion or claim and any still-refuted claim, and summarize verified claims by count.
+Mention a corrected claim only if it changed the proposed design. A revision attempt alone does not
+establish that a refuted claim was resolved.
 
 Ask the user to approve, edit, or reject. Stop the turn. Tell them that edits to the plan artifact are authoritative and that replying with `$masterdevs-feature continue` resumes implementation.
 
