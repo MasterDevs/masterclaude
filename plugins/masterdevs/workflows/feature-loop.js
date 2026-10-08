@@ -439,8 +439,9 @@ const noAnswer = (label) => {
   agentFailures.push(label)
   log(`${label} got no answer from its model (often: out of usage credits) — see its log line for the cause`)
 }
-// Each Verify checks every criterion against the whole tree, so one that answers makes an earlier
-// silent Verify moot. Reviews are not cleared this way: a later round reviews only its own revisions.
+// A full Verify checks every criterion against the whole tree, so one that answers makes an earlier
+// silent Verify moot. Only a full one: a later round's Verify and a re-verify after a fix check just
+// what changed. Reviews are never cleared this way, since a later round reviews only its own revisions.
 const verifyAnswered = () => {
   for (let i = agentFailures.length - 1; i >= 0; i--) if (/^verify:\d+\.\d+$/.test(agentFailures[i])) agentFailures.splice(i, 1)
 }
@@ -779,6 +780,7 @@ const collect = (r) => {
 let iteration = 0
 let lastFindings = []
 let verifyPassed = false
+let verifyGap = false             // a Verify got no answer, so no later one may assume the code verified clean
 let verifyNeedsApproval = []
 let suiteGreen = null              // worktree fingerprint the full suite last passed on (see SUITE_GATE_RULE)
 let impossibleCriteria = []   // criteria correct code can never satisfy — the target itself is wrong
@@ -867,7 +869,8 @@ while (iteration < MAX_ITERATIONS) {
     `any file, and do NOT run \`git stash\`/\`checkout\`/\`reset\`/\`clean\` or anything else that mutates the tree. ` +
     `You need no baseline comparison — judge the code as it stands. Report problems; someone else fixes them. ` +
     `One exception: the run log and repo notes named above live OUTSIDE the worktree — updating them is required.`
-  const verifyScope = iteration === 1
+  const fullVerify = iteration === 1 || verifyGap
+  const verifyScope = fullVerify
     ? `Run the test suite, then exercise it LIVE per the verify method (boot the app, hit endpoints, run integration).`
     : `This code verified clean in an earlier round; only these revisions have landed since:\n` +
       `${revisions.map((r) => `- ${r}`).join('\n')}\n` +
@@ -927,8 +930,8 @@ while (iteration < MAX_ITERATIONS) {
     ...reviewPanel.map(reviewTask),
   ])
   let verify = concurrent[0]
-  if (verify) verifyAnswered()
-  else noAnswer(`verify:${iteration}.0`)
+  if (verify && fullVerify) { verifyAnswered(); verifyGap = false }
+  if (!verify) { noAnswer(`verify:${iteration}.0`); verifyGap = true }
   lastFindings = concurrent.slice(1).flatMap((f) => f || [])
   verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
 
@@ -955,8 +958,7 @@ while (iteration < MAX_ITERATIONS) {
     if (fix.notes) carryNotes = fix.notes
     verify = await agent(verifyPrompt(vAttempt, justFixed), {
       label: `verify:${iteration}.${vAttempt}`, phase: 'Verify', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA })
-    if (verify) verifyAnswered()
-    else noAnswer(`verify:${iteration}.${vAttempt}`)
+    if (!verify) { noAnswer(`verify:${iteration}.${vAttempt}`); verifyGap = true }
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
   verifyPassed = !!(verify && verify.passed)

@@ -717,7 +717,9 @@ const scenarios = [
     ],
   },
   {
-    name: 'a later Verify that answers clears the earlier silent one',
+    // Round 2's Verify normally checks only the revisions. After a silent round-1 Verify nothing was ever
+    // checked in full, so that scoped pass must not stand in for it.
+    name: 'after a silent Verify, the next round verifies in full, and only that clears it',
     args: LOOP_ARGS,
     responder: (() => {
       let v = 0, r = 0
@@ -726,10 +728,26 @@ const scenarios = [
         : l.startsWith('review') ? (++r === 1 ? find(['high']) : find([]))
         : r === 1 ? iter({ decision: 'continue', mustFix: ['close the dialog on Escape'] }) : iter({})
     })(),
-    expect: ({ result, calls }) => [
+    expect: ({ result, calls, prompts }) => [
       [calls.includes('verify:2.0'), `the second round must verify again, ran ${calls.join(', ')}`],
+      [!/verified clean in an earlier round/.test(prompts['verify:2.0'] || ''), 'round 2 must not claim an earlier clean Verify'],
+      [/Run the test suite, then exercise it LIVE/.test(prompts['verify:2.0'] || ''), 'round 2 must verify in full'],
       [!result.agentFailures.some((l) => l.startsWith('verify')), `got ${result.agentFailures.join(', ')}`],
       [result.outcome === 'passed', `a later full Verify settles it, got ${result.outcome}`],
+    ],
+  },
+  {
+    name: 'a silent re-verify after a fix also makes the next round verify in full',
+    args: LOOP_ARGS,
+    responder: (() => {
+      let v = 0
+      return (l) => l.startsWith('implement') ? impl : l.startsWith('refactor') ? refac
+        : l.startsWith('verify') ? (++v === 1 ? { ...vpass, passed: false, failures: ['the dialog stays open'] } : v === 2 ? null : vpass)
+        : l.startsWith('review') ? find(['high']) : iter({ decision: 'continue', mustFix: ['close the dialog on Escape'] })
+    })(),
+    expect: ({ result, prompts }) => [
+      [/Run the test suite, then exercise it LIVE/.test(prompts['verify:2.0'] || ''), 'round 2 must verify in full after the silent re-verify'],
+      [!result.agentFailures.includes('verify:1.1'), `the full round-2 Verify must clear it, got ${result.agentFailures.join(', ')}`],
     ],
   },
   {
