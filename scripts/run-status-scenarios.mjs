@@ -259,7 +259,7 @@ const MINE = '11111111-2222-3333-4444-555555555555'
 const THEIRS = '99999999-8888-7777-6666-555555555555'
 
 scenario('the project directory is named the way Claude names it', () => {
-  assert.equal(projectSlug('/Users/k/src/masterclaude.feat-x'), '-Users-k-src-masterclaude-feat-x')
+  assert.equal(projectSlug('/home/k/src/masterclaude.feat-x'), '-home-k-src-masterclaude-feat-x')
 })
 
 scenario('concurrent sessions in one project and across projects: only this one is found and read', async () => {
