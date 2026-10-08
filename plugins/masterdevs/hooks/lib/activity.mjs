@@ -89,7 +89,8 @@ function runnerIntent(words) {
 const LEAD = new Set(['sudo', 'env', 'time', 'nohup', 'exec', 'command', 'then', 'do', 'else', 'if', 'while', 'until', '!', 'timeout'])
 const BUILTIN = new Set(['cd', 'echo', 'printf', 'true', 'false', 'export', 'set', 'unset', 'local', 'for', 'case', 'done', 'fi', 'esac', 'read', 'test', '[', 'source', '.', 'sleep', 'wait', 'exit', 'return'])
 
-export function shellIntent(command) {
+// Every intent a shell command shows, as INTENTS keys.
+function shellIntents(command) {
   const found = new Set()
   let text = String(command || '')
   // A heredoc feeds a file or a program; its body is content, never commands.
@@ -123,6 +124,11 @@ export function shellIntent(command) {
       if (!(piped && (intent === 'read' || intent === 'search'))) found.add(intent)
     }
   }
+  return found
+}
+
+export function shellIntent(command) {
+  const found = shellIntents(command)
   const top = [...found].sort((a, b) => INTENT_RANK.get(a) - INTENT_RANK.get(b)).slice(0, 2).map((k) => PHRASE.get(k))
   if (!top.length) return null
   const said = top.join(' and ')
@@ -185,10 +191,18 @@ export function caption(tool, input = {}) {
 }
 
 // The outcome a finished call reports. A call is never shown as done before its result arrived.
-export function stateOf(result) {
+//
+// A shell command's error is shown only when the command runs tests, checks the code or builds it:
+// there a failure tells the person something. A command that looks around ends with an error just
+// because the last thing it looked for is not there yet, and "— failed" on it is noise.
+const FAILURE_MATTERS = new Set(['test', 'check', 'build'])
+export function stateOf(result, tool = null, input = {}) {
   if (!result || typeof result !== 'object') return 'done'
   if ('deny' in result && result.deny !== undefined) return 'denied'
-  return result.isError ? 'failed' : 'done'
+  if (!result.isError) return 'done'
+  if (clean(tool) !== 'Bash') return 'failed'
+  const intents = shellIntents(input?.command)
+  return [...intents].some((k) => FAILURE_MATTERS.has(k)) ? 'failed' : 'done'
 }
 
 const RANK = { started: 0, sampled: 1, done: 2, failed: 2, denied: 2 }

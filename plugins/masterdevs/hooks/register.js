@@ -350,7 +350,7 @@ export const register = (on) => {
     const at = await $.clock.now().catch(() => null)
     note(agent, { id, seq: ++seq, at, text, state: 'started' })
     const result = await next(e)
-    note(agent, { id, seq: ++seq, at, text, state: stateOf(result) })
+    note(agent, { id, seq: ++seq, at, text, state: stateOf(result, e.tool, e) })
     return result
   }).catch(($, e, next) => next(e))
 

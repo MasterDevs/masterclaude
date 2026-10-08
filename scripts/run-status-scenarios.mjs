@@ -148,6 +148,19 @@ scenario('a result is read as done, failed or not allowed — never assumed', ()
   assert.equal(stateOf({ deny: 'policy' }), 'denied')
 })
 
+scenario('a shell error is shown only where it tells the person something', () => {
+  const err = { result: 'Exit code 1', isError: true }
+  // Looking around: the last thing looked for is not there yet.
+  assert.equal(stateOf(err, 'Bash', { command: 'git status --short; cat notes.md 2>&1 | head -50; ls run/progress/' }), 'done')
+  // Tests, checks and builds that fail are worth seeing.
+  assert.equal(stateOf(err, 'Bash', { command: 'npm test' }), 'failed')
+  assert.equal(stateOf(err, 'Bash', { command: 'git status && npx tsc --noEmit' }), 'failed')
+  assert.equal(stateOf(err, 'Bash', { command: 'npm run build' }), 'failed')
+  // Other tools keep their failures.
+  assert.equal(stateOf(err, 'Edit', { file_path: '/a/b.ts' }), 'failed')
+  assert.equal(stateOf(err, 'Bash', {}), 'done')
+})
+
 // ── interpreting the record ─────────────────────────────────────────────────
 scenario('a truncated review preview is unknown, not clean', () => {
   const cut = { label: 'review:security:1', resultPreview: '{"lens":"security","notes":"looked at pricing and the auth middleware and' }
