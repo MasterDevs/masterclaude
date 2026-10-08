@@ -4,6 +4,19 @@ Notable changes to `masterdevs`. Format follows [Keep a Changelog](https://keepa
 versioning is [semver](https://semver.org/), pre-1.0 — **minor versions may break interfaces** (schemas
 gain required fields, result fields change meaning). Pin a version if that matters to you.
 
+## [0.16.0](https://github.com/MasterDevs/masterclaude/compare/v0.15.1...v0.16.0) (2026-10-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* an installed copy must be removed and re-added under the new name — `codex plugin remove masterdevs-codex@masterclaude-codex` then `codex plugin add masterdevs@masterclaude-codex`.
+
+### Added
+
+* add the gold lane — curated examples agents can read ([#4](https://github.com/MasterDevs/masterclaude/issues/4)) ([2924e8a](https://github.com/MasterDevs/masterclaude/commit/2924e8a7259ff374cba75a6a14b9d3bb4719f82b))
+* plan on Fable, the strongest model, while every other phase stays put ([#7](https://github.com/MasterDevs/masterclaude/issues/7)) ([34a0e44](https://github.com/MasterDevs/masterclaude/commit/34a0e447404309ab87475179d3156dd301a529b7))
+* run the MasterDevs feature loop inside Codex ([#5](https://github.com/MasterDevs/masterclaude/issues/5)) ([68ef1a4](https://github.com/MasterDevs/masterclaude/commit/68ef1a47f60e76e8316ef3dfaa25325831d85ed5))
+
 ## [0.15.1](https://github.com/MasterDevs/masterclaude/compare/v0.15.0...v0.15.1) (2026-08-20)
 
 

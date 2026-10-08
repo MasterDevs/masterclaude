@@ -1,6 +1,6 @@
 {
   "name": "masterdevs",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "description": "Orchestrated feature development for Codex: settle intent, approve a fact-checked plan, implement, verify, review, iterate, and report.",
   "author": {
     "name": "Kevin Prudente",
@@ -9,7 +9,12 @@
   "homepage": "https://github.com/MasterDevs/masterclaude",
   "repository": "https://github.com/MasterDevs/masterclaude",
   "license": "MIT",
-  "keywords": ["codex", "feature-development", "multi-agent", "code-review"],
+  "keywords": [
+    "codex",
+    "feature-development",
+    "multi-agent",
+    "code-review"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "MasterDevs",
@@ -17,7 +22,10 @@
     "longDescription": "Front-load feature decisions into an interview and fact-checked plan, then let Codex implement, refactor, verify, review, iterate, and report with minimal interruption.",
     "developerName": "MasterDevs",
     "category": "Developer Tools",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": "Use $masterdevs-feature to build this feature from a settled brief."
   }
 }
