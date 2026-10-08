@@ -439,6 +439,11 @@ const noAnswer = (label) => {
   agentFailures.push(label)
   log(`${label} got no answer from its model (often: out of usage credits) — see its log line for the cause`)
 }
+// Each Verify checks every criterion against the whole tree, so one that answers makes an earlier
+// silent Verify moot. Reviews are not cleared this way: a later round reviews only its own revisions.
+const verifyAnswered = () => {
+  for (let i = agentFailures.length - 1; i >= 0; i--) if (/^verify:\d+\.\d+$/.test(agentFailures[i])) agentFailures.splice(i, 1)
+}
 
 // The Plan runs on the strongest model, which has its own usage limit. Losing the run to that limit
 // wastes the Refine work already done, so a Plan that gets no answer is asked once more on the next
@@ -488,11 +493,22 @@ const DESCRIBE_SHELL =
 // Which step of how many the engineer is on, for the live status pane. The engineer builds every step
 // in one pass, so only it knows; it says so by creating one small file as each step begins, and the
 // pane reads that write as it happens. Without a runDir (a standalone run) there is nowhere to put it.
-const progressRule = (label, kind, titles) => !runDir || !titles.length ? '' :
-  `\n\nProgress: the user follows a live status pane. As you START each ${kind} below, create a new file ` +
-  `${runDir}/progress/${label.replace(/[^A-Za-z0-9]+/g, '-')}-<k>.txt with the Write tool, containing exactly ` +
-  `one line: "${kind.charAt(0).toUpperCase() + kind.slice(1)} <k> of ${titles.length}: <its title>". ` +
-  `The ${kind}s, in order:\n` + titles.map((t, i) => `${i + 1}. ${String(t).split('\n')[0].slice(0, 80)}`).join('\n')
+// A step's title is the plan's own. A fix's is not repeated: fixes are raw failure text (paths, commands,
+// test names) the pane must never show, so the engineer names each one in plain words instead.
+// A resumed run re-runs an agent under the same label, and the Write tool refuses to replace a file it
+// has not read, so the rule says to read one that is already there.
+const progressRule = (label, kind, titles) => {
+  if (!runDir || !titles.length) return ''
+  const file = `${runDir}/progress/${label.replace(/[^A-Za-z0-9]+/g, '-')}-<k>.txt`
+  const isStep = kind === 'step'
+  const title = isStep ? '<its title>' : '<what it fixes, in plain words, 8 words or fewer — no paths, commands, test names or code>'
+  const order = isStep
+    ? `The steps, in order:\n` + titles.map((t, i) => `${i + 1}. ${String(t).split('\n')[0].slice(0, 80)}`).join('\n')
+    : `The fixes are the ${titles.length} listed above, in that order.`
+  return `\n\nProgress: the user follows a live status pane. As you START each ${kind}, create the file ${file} ` +
+    `with the Write tool (if it already exists from an earlier attempt, Read it first, then write it), containing ` +
+    `exactly one line: "${isStep ? 'Step' : 'Fix'} <k> of ${titles.length}: ${title}". ${order}`
+}
 
 const CHANNELS =
   `\n\nUse the two channels from your instructions rather than stopping to ask: \`punted\` {item, reason} ` +
@@ -911,7 +927,8 @@ while (iteration < MAX_ITERATIONS) {
     ...reviewPanel.map(reviewTask),
   ])
   let verify = concurrent[0]
-  if (!verify) noAnswer(`verify:${iteration}.0`)
+  if (verify) verifyAnswered()
+  else noAnswer(`verify:${iteration}.0`)
   lastFindings = concurrent.slice(1).flatMap((f) => f || [])
   verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
 
@@ -938,7 +955,8 @@ while (iteration < MAX_ITERATIONS) {
     if (fix.notes) carryNotes = fix.notes
     verify = await agent(verifyPrompt(vAttempt, justFixed), {
       label: `verify:${iteration}.${vAttempt}`, phase: 'Verify', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA })
-    if (!verify) noAnswer(`verify:${iteration}.${vAttempt}`)
+    if (verify) verifyAnswered()
+    else noAnswer(`verify:${iteration}.${vAttempt}`)
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
   verifyPassed = !!(verify && verify.passed)
@@ -955,7 +973,8 @@ while (iteration < MAX_ITERATIONS) {
   const iter = await agent(
     `Decide whether to run the loop again. You are given this round's review findings plus verify status.\n\n` +
     `Findings:\n${JSON.stringify(lastFindings, null, 2)}\n\n` +
-    `Verify passed: ${verifyPassed}. Iteration ${iteration}/${MAX_ITERATIONS}.\n` +
+    `Verify passed: ${verify ? verifyPassed : 'unknown — verification got no answer, which is not a failure'}. ` +
+    `Iteration ${iteration}/${MAX_ITERATIONS}.\n` +
     `Requirements + plan (to judge conflicts):\n${refine.requirements}\n${plan.summary}\n\n` +
     `Partition the findings into FOUR buckets:\n` +
     `- \`mustFix\` — revisions that come from a critical/high finding or a verify failure. ONLY these justify ` +
@@ -986,6 +1005,9 @@ while (iteration < MAX_ITERATIONS) {
   // The script, not the agent, decides what earns another round: the agent can vote to stop, never to prolong.
   if (iter.decision !== 'continue') break
   if (!revisions.length && !hasBlocking && verifyPassed) break
+  // A Verify that got no answer is not a failure to fix: with nothing else to fix, another round would
+  // only re-run every agent to ask the same question of a model that is not answering.
+  if (!verify && !revisions.length && !hasBlocking) break
 }
 
 // ── Polish: the batched medium/low revisions, applied once ──────────────────

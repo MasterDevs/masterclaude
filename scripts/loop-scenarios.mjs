@@ -683,7 +683,53 @@ const scenarios = [
       [prompts['implement:1'].includes('/run/progress/implement-1-<k>.txt'), 'round 1 must name its progress file'],
       [prompts['implement:1'].includes('"Step <k> of 1: <its title>"'), 'round 1 must count the plan steps'],
       [/1\. t$/m.test(prompts['implement:1']), 'the steps must be listed with their titles'],
-      [prompts['implement:2'].includes('"Fix <k> of 2: <its title>"'), 'round 2 must count its fixes'],
+      [prompts['implement:2'].includes('"Fix <k> of 2: <what it fixes, in plain words'), 'round 2 must count its fixes'],
+      [prompts['implement:1'].includes('Read it first'), 'a resumed engineer must be told how to replace its marker'],
+    ],
+  },
+  {
+    // Fixes are raw failure text, which can hold paths and commands the pane must never show.
+    name: 'a fix marker names the fix in plain words, never the raw failure text',
+    args: LOOP_ARGS,
+    responder: (() => {
+      let v = 0
+      return (l) => l.startsWith('implement') ? impl : l.startsWith('refactor') ? refac
+        : l.startsWith('verify') ? (++v === 1 ? { ...vpass, passed: false, failures: ['pytest tests/test_x.py::test_secret_path failed'] } : vpass)
+        : l.startsWith('review') ? find([]) : iter({})
+    })(),
+    expect: ({ prompts }) => {
+      const rule = (prompts['implement:1.fix1'] || '').split('Progress:')[1] || ''
+      return [
+        [/"Fix <k> of 1: <what it fixes, in plain words/.test(rule), 'the fix agent must be asked for a plain title'],
+        [!rule.includes('test_secret_path'), 'the marker rule must not repeat the raw failure text'],
+      ]
+    },
+  },
+  {
+    name: 'a Verify that got no answer does not buy another round by itself',
+    args: LOOP_ARGS,
+    responder: (l) => l.startsWith('implement') ? impl : l.startsWith('refactor') ? refac
+      : l.startsWith('verify') ? null : l.startsWith('review') ? find([]) : iter({ decision: 'continue' }),
+    expect: ({ result, calls, prompts }) => [
+      [!calls.includes('implement:2'), `no second round may run, ran ${calls.join(', ')}`],
+      [/Verify passed: unknown/.test(prompts['iterate:1'] || ''), 'Iterate must hear that Verify is unknown, not failed'],
+      [result.outcome === 'needs-attention' && result.agentFailures.includes('verify:1.0'), 'the missing Verify must still be named'],
+    ],
+  },
+  {
+    name: 'a later Verify that answers clears the earlier silent one',
+    args: LOOP_ARGS,
+    responder: (() => {
+      let v = 0, r = 0
+      return (l) => l.startsWith('implement') ? impl : l.startsWith('refactor') ? refac
+        : l.startsWith('verify') ? (++v === 1 ? null : vpass)
+        : l.startsWith('review') ? (++r === 1 ? find(['high']) : find([]))
+        : r === 1 ? iter({ decision: 'continue', mustFix: ['close the dialog on Escape'] }) : iter({})
+    })(),
+    expect: ({ result, calls }) => [
+      [calls.includes('verify:2.0'), `the second round must verify again, ran ${calls.join(', ')}`],
+      [!result.agentFailures.some((l) => l.startsWith('verify')), `got ${result.agentFailures.join(', ')}`],
+      [result.outcome === 'passed', `a later full Verify settles it, got ${result.outcome}`],
     ],
   },
   {
