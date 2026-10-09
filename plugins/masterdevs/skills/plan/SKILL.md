@@ -48,14 +48,14 @@ It returns `{summary, lenses, claims, steps: [{title, intent, files, guidance, a
 
 ## Step 4 — Present it for argument, not approval
 
-There's no build behind this command, so don't ask "approve?" — ask what's wrong with it. Summarize:
+Read `${CLAUDE_PLUGIN_ROOT}/references/reporting.md` and follow its **Plan previews** guidance. Choose
+the smallest useful form for this plan; sentences and diagrams are optional. Include only the
+decision and verification notes needed to judge the design. Keep the complete returned plan
+available for detail; do not paste its steps into chat.
 
-- **The approach** in two or three sentences, in the user's vocabulary.
-- **The steps**, one line each — what changes and why, not a file listing.
-- **The design calls worth arguing with**: where a pattern was chosen over an alternative, where existing
-  code is being extended rather than replaced, anything the user might disagree with. This is the part
-  with value; a plan nobody argues with was not worth reading.
-- **What this plan assumes** — read these straight off `claims`, one line each: the assumption and what breaks if it's false. Then **offer to check them** against the code before the user argues with the design; a plan resting on a wrong call-site count is often wrong in shape, not just in detail. (`/masterdevs:feature` runs this check automatically; here it's yours to ask for.)
+There's no build behind this command, so don't ask "approve?" — ask what's wrong with it. Claims have
+not been fact-checked by this command: label them unchecked, surface decision-relevant assumptions
+and their consequences, and offer to check them. Do not imply that a plausible plan is verified.
 
 Offer to save it to `$DATA_DIR/plans/<slug>-<date>.md` if they want it, and mention that
 `/masterdevs:feature` can take it from here — it will re-plan against its own interview, so a plan

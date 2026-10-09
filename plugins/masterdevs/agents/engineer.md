@@ -51,10 +51,10 @@ Reuse what fits. When something nearly fits and widening it is small and behavio
 
 A unit whose behavior turns on many interacting conditions is the main reason code becomes unreadable later — more than length, more than naming. Cut it at the source:
 
-- **Early return** on every guard, precondition, and error case, so the main path stays at one level.
-- **Lookup over ladder.** An if/else chain dispatching on a value wants a dict/map from value to handler.
+- **Early returns** for guards, preconditions, and error cases when they make the main path easier to follow.
+- **Lookup over ladder** when a dict/map makes value-based dispatch clearer. Keep explicit branches when they explain the cases better.
 - **One function per case** when branches barely share logic. Two clear functions beat one with a mode flag — which is the same rule as "no boolean flag arguments," seen from the other side.
-- **Extract the condition, not just the body.** `if is_eligible_for_rebuild(deal):` beats three chained clauses, even when it is used once.
+- **Name complex conditions.** A local predicate variable can explain a compound condition; extract a predicate function when it captures a coherent concept and makes the flow easier to follow, even if used once.
 
 Around ten decision points in one unit is where it stops being followable. Treat that as a signal to split, not a budget to spend.
 
@@ -64,11 +64,24 @@ Assume the next reader has no context: not the ticket, not the plan, not the dif
 
 - Names carry the meaning. A name that only parses if you know this feature is the wrong name.
 - Comments say **why** — the constraint, the surprise, the thing the code cannot state. Never what.
-- A block needing a paragraph of explanation wants to be a named function instead. The name is the explanation.
+- Extract a block into a named function when the name captures a coherent responsibility and makes the caller easier to follow. Keep it inline when extraction would merely scatter the flow.
+- Keep each statement focused on one conceptual operation. Separate decisions, transformations, and data construction into distinct steps when combining them requires mental unpacking.
+- Introduce meaningfully named intermediate variables to explain conditions, calculations, and transformations.
+- Keep function arguments, return expressions, and object/array initializers simple. Compute complicated values beforehand where this improves clarity, preserving evaluation order and conditional execution; keep branch-specific work in its branch.
+- Prefer explicit control flow when it makes execution easier to follow. Optimize for comprehension, even when that requires more lines.
+- Avoid mechanically splitting trivial expressions or introducing helpers that merely move complexity elsewhere. Apply these rules where they reduce the reader's work.
 
 ## 4. Naming
-- A name answers *why it exists / what it does*. Booleans read as predicates (`is_expired`, `has_access`). Put units in names (`timeout_ms`, `size_bytes`). Use symmetric pairs (`open`/`close`, `load`/`save`).
-- No noise words (`Manager`, `Data`, `Info`, `Helper` as the whole name). No abbreviations outside tight loops. **A name you have to explain in a comment is a name to change.**
+Names should communicate domain meaning and computational role.
+
+- Distinguish identifiers, indexes, objects, collections, and accumulators where confusion is possible.
+- Name maps to reveal their contents and lookup or grouping key.
+- Make units and aggregation scope explicit where ambiguity is possible.
+- Prefer precise domain terms over generic names. Use abbreviations only when established and clear in context.
+- Use consistent terminology for the same concept throughout a function and align with established repository terminology.
+- Make business rules, missing-data policies, and assumptions visible through clear names and explicit steps. Do not force an entire rule into a name.
+- Use comments to explain why a rule exists or an assumption is necessary.
+- Booleans read as predicates (`is_expired`, `has_access`). Use symmetric pairs (`open`/`close`, `load`/`save`).
 
 ## 5. Signatures & errors
 - ≤3 positional args, then take a parameter object. **No boolean flag arguments** — split the function or pass an enum/options object.
@@ -119,7 +132,7 @@ Each of these has actually happened in a real run and cost real time:
 - [ ] No secrets/PII logged or stored unnecessarily; queries parameterized; no homegrown crypto.
 - [ ] All external input validated at boundaries; external responses validated before use.
 - [ ] Functions do one thing at one level; seams only at real boundaries; dependencies point inward.
-- [ ] Names need no explanation; no boolean flag args; ≤3 positional args.
+- [ ] Names communicate domain meaning and role; ambiguous units and aggregation scope are explicit; no boolean flag args; ≤3 positional args.
 - [ ] Errors are typed and loud; nothing swallowed; network failure handled.
 - [ ] Planned patterns implemented where the plan placed them; tactical patterns simplify, not decorate.
 - [ ] Tests cover critical path + edges + failures; deterministic; one behavior each.

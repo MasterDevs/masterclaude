@@ -226,13 +226,20 @@ const PLAN_SCHEMA = {
 const CRAFT_RULE =
   `Three things this codebase is judged on, in every step you write:\n` +
   `1. **Branching stays low.** A function whose behavior depends on many interacting conditions is the ` +
-  `main thing that makes code unreadable later. Prefer early returns over nesting, a lookup table over ` +
-  `an if/else ladder, and a separate function per distinct case. If a unit needs more than ~10 decision ` +
+  `main thing that makes code unreadable later. Use early returns, lookup dispatch, or separate functions ` +
+  `for distinct responsibilities when they make the flow clearer; keep explicit branches when easier to follow. If a unit needs more than ~10 decision ` +
   `points, that is the signal to split it — not a target to hit.\n` +
   `2. **Written for a cold reader.** Assume the next person has never seen this file and will not read ` +
-  `the diff, the ticket, or this plan. Names carry the meaning; comments explain WHY, never what. If a ` +
-  `name needs a comment to be understood, change the name. If a block needs a paragraph, it wants to be ` +
-  `a well-named function.\n` +
+  `the diff, the ticket, or this plan. Names communicate domain meaning and computational role. ` +
+  `Distinguish identifiers, indexes, objects, collections, and accumulators where confusion is possible; ` +
+  `name map contents and keys, and make ambiguous units and aggregation scope explicit. Use consistent ` +
+  `repository terminology and only established abbreviations that are clear in context. Make business rules, ` +
+  `missing-data policies, and assumptions visible through names and explicit steps; comments explain why ` +
+  `a rule exists or an assumption is necessary. Do not force an entire rule into a name. Separate decisions, transformations, and ` +
+  `data construction when combining them requires mental unpacking; use meaningful intermediate names. ` +
+  `Keep arguments, returns, and initializers simple while preserving evaluation order and conditional execution. ` +
+  `Extract a function only when it captures a coherent responsibility and clarifies the caller. ` +
+  `Optimize for comprehension over fewer lines; do not mechanically split trivial expressions or scatter the flow.\n` +
   `3. **Reuse before writing, and leave the seam better.** Search for the existing helper, type, or ` +
   `near-twin before authoring a new one — near-duplicates are the dominant source of drift here, where ` +
   `one copy gets fixed and the other silently does not. When you find one, extend it or extract the ` +
@@ -419,6 +426,55 @@ const playbookNote =
 
 const merge = (a, b) => [...new Set([...(a || []), ...(b || [])])]
 
+// ── When a model stops answering ────────────────────────────────────────────
+// agent() returns null when its subagent dies on an API error the runtime's own retries could not get
+// past — most often the account is out of usage credits for that model — or when the user skips it.
+// The script cannot see which; the run log's "[label] failed: …" line names the cause. Before this, a
+// null either threw ("Plan produced no steps") or read as an empty answer: a reviewer that never ran
+// counted as a review that found nothing. Now every null is recorded in `agentFailures`, a run with any
+// can never report `passed`, and an agent the loop cannot go on without stops it with a plain outcome.
+const FALLBACK_MODEL = 'opus'
+const agentFailures = []
+const noAnswer = (label) => {
+  agentFailures.push(label)
+  log(`${label} got no answer from its model (often: out of usage credits) — see its log line for the cause`)
+}
+// A full Verify checks every criterion against the whole tree, so one that answers makes an earlier
+// silent Verify moot. Only a full one: a later round's Verify and a re-verify after a fix check just
+// what changed. Reviews are never cleared this way, since a later round reviews only its own revisions.
+const verifyAnswered = () => {
+  for (let i = agentFailures.length - 1; i >= 0; i--) if (/^verify:\d+\.\d+$/.test(agentFailures[i])) agentFailures.splice(i, 1)
+}
+
+// The Plan runs on the strongest model, which has its own usage limit. Losing the run to that limit
+// wastes the Refine work already done, so a Plan that gets no answer is asked once more on the next
+// strongest model. (After a user skip this asks again; skipping the retry too stops the run.)
+async function withFallback(prompt, opts) {
+  const out = await agent(prompt, opts)
+  if (out || opts.model === FALLBACK_MODEL) { if (!out) noAnswer(opts.label); return out }
+  noAnswer(opts.label)
+  log(`retrying ${opts.label} once on ${FALLBACK_MODEL}`)
+  const label = `${opts.label} (retry 1)`
+  const retry = await agent(prompt, { ...opts, label, model: FALLBACK_MODEL })
+  if (!retry) noAnswer(label)
+  return retry
+}
+
+// The stop for an agent the loop cannot continue without. Finished agents are not lost: resuming the
+// run (same script, same args) replays them from the journal and starts at the one that failed.
+const stopNoAnswer = (label, extra = {}) => ({
+  outcome: 'error',
+  reason: 'no-answer',
+  failedAgent: label,
+  agentFailures,
+  notes: `${label} got no answer from its model, so the run stopped there. The most common cause is running ` +
+    `out of usage credits; the run log names the actual one. Once the model is available again (or with a ` +
+    `different model), resume the run — finished agents are reused, not re-run.`,
+  requirementsPath: reqPath,
+  planPath: planFilePath,
+  ...extra,
+})
+
 // Intra-agent context discipline: keeps a single agent lean so it stays in the model's effective zone and
 // any runtime auto-compaction is lossless (durable state is already externalized). Appended to the phases
 // most prone to context growth (broad research, multi-file implementation, command-heavy verification).
@@ -429,16 +485,43 @@ const merge = (a, b) => [...new Set([...(a || []), ...(b || [])])]
 // two-channel policy and the plain-language rule for writing them. Restating it here would be a second
 // copy to keep in sync — and the two would drift, which is worse than either alone. Durable role
 // standards live in the agent file; prompts carry the task.
+// The user watches each agent's shell commands in a live status pane, through the `description` each
+// call carries. Without one the pane can only guess from the command, so every agent is asked for it.
+const DESCRIBE_SHELL =
+  `\n\nGive every shell command a \`description\`: what it does, in plain words a non-engineer follows, ` +
+  `10 words or fewer (e.g. "Find where the dialog is used", "Run the checkout tests"). No paths, flags or code.`
+
+// Which step of how many the engineer is on, for the live status pane. The engineer builds every step
+// in one pass, so only it knows; it says so by creating one small file as each step begins, and the
+// pane reads that write as it happens. Without a runDir (a standalone run) there is nowhere to put it.
+// A step's title is the plan's own. A fix's is not repeated: fixes are raw failure text (paths, commands,
+// test names) the pane must never show, so the engineer names each one in plain words instead.
+// A resumed run re-runs an agent under the same label, and the Write tool refuses to replace a file it
+// has not read, so the rule says to read one that is already there.
+const progressRule = (label, kind, titles) => {
+  if (!runDir || !titles.length) return ''
+  const file = `${runDir}/progress/${label.replace(/[^A-Za-z0-9]+/g, '-')}-<k>.txt`
+  const isStep = kind === 'step'
+  const title = isStep ? '<its title>' : '<what it fixes, in plain words, 8 words or fewer — no paths, commands, test names or code>'
+  const order = isStep
+    ? `The steps, in order:\n` + titles.map((t, i) => `${i + 1}. ${String(t).split('\n')[0].slice(0, 80)}`).join('\n')
+    : `The fixes are the ${titles.length} listed above, in that order.`
+  return `\n\nProgress: the user follows a live status pane. As you START each ${kind}, create the file ${file} ` +
+    `with the Write tool (if it already exists from an earlier attempt, Read it first, then write it), containing ` +
+    `exactly one line: "${isStep ? 'Step' : 'Fix'} <k> of ${titles.length}: ${title}". ${order}`
+}
+
 const CHANNELS =
   `\n\nUse the two channels from your instructions rather than stopping to ask: \`punted\` {item, reason} ` +
   `for anything small or out of scope, \`escalations\` {issue, why, soWhat} when the code contradicted the ` +
-  `plan. Keep status="done" if you found a defensible way forward; "blocked" only for a genuine dead end.`
+  `plan. Keep status="done" if you found a defensible way forward; "blocked" only for a genuine dead end.` +
+  DESCRIBE_SHELL
 
 const CONTEXT_DISCIPLINE =
   `\n\nContext discipline: work lean. Read targeted sections (grep, specific symbols) rather than whole large ` +
   `files; externalize durable findings to the artifact or code AS YOU GO instead of holding them in context; ` +
   `keep only what the current step needs. If your context grows large, summarize what you've established into ` +
-  `the artifact and continue from that summary rather than re-reading everything.`
+  `the artifact and continue from that summary rather than re-reading everything.` + DESCRIBE_SHELL
 
 // Two calls: the first runs Refine+Plan and STOPS for human plan approval; the second (startFrom:
 // 'implement') loads the approved (possibly human-edited) artifacts and runs the Implement→Iterate loop.
@@ -463,7 +546,8 @@ if (startFrom === 'implement') {
           properties: { refine: REFINE_SCHEMA, plan: PLAN_SCHEMA } } }
     )
   }
-  if (!loaded || !loaded.refine || !loaded.plan) throw new Error(`Could not load approved artifacts from ${runDir}`)
+  if (!loaded) { noAnswer('load-approved'); return stopNoAnswer('load-approved') }
+  if (!loaded.refine || !loaded.plan) throw new Error(`Could not load approved artifacts from ${runDir}`)
   refine = loaded.refine
   plan = loaded.plan
 } else {
@@ -497,7 +581,7 @@ if (startFrom === 'implement') {
     (reqPath ? `Also write a concise human-readable version to ${reqPath}, ending with the EXACT structured result in a fenced \`\`\`json block (so a later call can reload it).\n` : ``) + CONTEXT_DISCIPLINE,
     { label: 'refine', phase: 'Refine', schema: REFINE_SCHEMA, agentType: 'general-purpose', model: 'sonnet' }
   )
-  if (!refine) throw new Error('Refine produced no output')
+  if (!refine) { noAnswer('refine'); return stopNoAnswer('refine') }
   if (refine.openQuestions && refine.openQuestions.length) {
     log(`Refine has ${refine.openQuestions.length} blocking question(s) — stopping for the user`)
     return { outcome: 'needs-clarification', openQuestions: refine.openQuestions, requirements: refine.requirements, requirementsPath: reqPath }
@@ -510,7 +594,7 @@ if (startFrom === 'implement') {
   // fine — and the user is waiting through this phase.
   phase('Plan')
   const planned = await parallel([
-    () => agent(
+    () => withFallback(
     `You are the Architect. Produce a handoff-ready implementation plan for another engineer to execute.\n\n` +
     `Requirements:\n${refine.requirements}\n\n` +
     `Success criteria:\n${JSON.stringify(refine.successCriteria, null, 2)}\n\n` +
@@ -557,8 +641,10 @@ if (startFrom === 'implement') {
     ),
   ])
   plan = planned[0]
+  if (!planned[1]) noAnswer('check-criteria')
   criteriaIssues = ((planned[1] && planned[1].issues) || [])
-  if (!plan || !plan.steps || plan.steps.length === 0) throw new Error('Plan produced no steps')
+  if (!plan) return stopNoAnswer('plan', { requirements: refine.requirements })
+  if (!plan.steps || plan.steps.length === 0) throw new Error('Plan produced no steps')
 
   // A contradictory or impossible criterion poisons everything downstream, and only the user can settle
   // it — so this stops here rather than surfacing as a caveat the user might approve past. This is the
@@ -602,7 +688,8 @@ if (startFrom === 'implement') {
       { label: `verify-plan:${planRevisions + 1}`, phase: 'Plan', schema: CLAIM_CHECK_SCHEMA,
         agentType: 'general-purpose', model: 'sonnet' }
     )
-    claimChecks = (checked && checked.results) || []
+    if (!checked) { noAnswer(`verify-plan:${planRevisions + 1}`); break }
+    claimChecks = checked.results || []
     const refuted = claimChecks.filter((r) => r.verdict === 'refuted')
     const unverifiable = claimChecks.filter((r) => r.verdict === 'unverifiable')
     log(`plan claims: ${claimChecks.length - refuted.length - unverifiable.length} verified, ` +
@@ -613,7 +700,7 @@ if (startFrom === 'implement') {
     // so this goes back to the Architect rather than being patched in place.
     planRevisions++
     log(`${refuted.length} claim(s) refuted — revising the plan`)
-    const revised = await agent(
+    const revised = await withFallback(
       `Your plan rested on claims about the code that turned out to be FALSE. Revise it.\n\n` +
       `Refuted claims, with what is actually true:\n${JSON.stringify(refuted, null, 2)}\n\n` +
       `Previous plan:\n${JSON.stringify(plan, null, 2)}\n\n` +
@@ -638,6 +725,7 @@ if (startFrom === 'implement') {
     claimChecks,
     criteriaIssues,   // survivors are `unverifiable` only — blocking kinds returned above
     planRevised: planRevisions > 0,
+    agentFailures,    // checks that got no answer: their silence is not a pass
     dataSource: (refine.verifyMethod && refine.verifyMethod.dataSource) || null,
     requirementsPath: reqPath,
     planPath: planFilePath,
@@ -663,7 +751,7 @@ if (!extraReviewers) {
         required: ['name', 'agentType', 'model'],
         properties: { name: { type: 'string' }, agentType: { type: 'string' }, model: { type: 'string' } } } } },
     } }
-  )) || { reviewers: [] }
+  )) || (noAnswer('roster'), { reviewers: [] })
   extraReviewers = loadedRoster.reviewers || []
 }
 const reviewPanel = [
@@ -692,6 +780,7 @@ const collect = (r) => {
 let iteration = 0
 let lastFindings = []
 let verifyPassed = false
+let verifyGap = false             // a Verify got no answer, so no later one may assume the code verified clean
 let verifyNeedsApproval = []
 let suiteGreen = null              // worktree fingerprint the full suite last passed on (see SUITE_GATE_RULE)
 let impossibleCriteria = []   // criteria correct code can never satisfy — the target itself is wrong
@@ -722,12 +811,17 @@ while (iteration < MAX_ITERATIONS) {
       `(Plan context)\n${planBlock}` + notesBlock()
   // No CONTEXT_DISCIPLINE here — engineer.md opens with the same rule. It stays on the general-purpose
   // calls (Refine, Verify, the checks), which have no agent definition to carry it.
-  const implFull = implPrompt + TEST_SCOPE_RULE + CHANNELS
+  const implFull = implPrompt + TEST_SCOPE_RULE + CHANNELS + (iteration === 1
+    ? progressRule(`implement:${iteration}`, 'step', plan.steps.map((st) => st.title))
+    : progressRule(`implement:${iteration}`, 'fix', revisions))
   const impl = collect(await agent(implFull, {
     label: `implement:${iteration}`, phase: 'Implement',
     agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA,
   }))
-  if (!impl) return { outcome: 'error', iteration, notes: 'implement returned no result' }
+  if (!impl) {
+    noAnswer(`implement:${iteration}`)
+    return stopNoAnswer(`implement:${iteration}`, { iteration, changedFiles, escalations, punted })
+  }
   if (impl.status === 'blocked') {
     return { outcome: 'blocked', iteration, notes: impl.notes, escalations, punted, changedFiles,
       requirementsPath: reqPath, planPath: planFilePath }
@@ -762,6 +856,7 @@ while (iteration < MAX_ITERATIONS) {
     `there isn't one.\n\n${planBlock}\n\nChanged files: ${changedFiles.join(', ')}\n${playbookNote}` + TEST_SCOPE_RULE + CHANNELS,
     { label: `refactor:${iteration}`, phase: 'Refactor', agentType: 'masterdevs:engineer', model: 'sonnet', schema: REFACTOR_SCHEMA }
   ))
+  if (!refactor) noAnswer(`refactor:${iteration}`)
   if (refactor) { changedFiles = merge(changedFiles, refactor.changedFiles); if (refactor.notes) carryNotes = refactor.notes }
 
   // ── Verify ∥ Review ────────────────────────────────────────────────────
@@ -774,7 +869,8 @@ while (iteration < MAX_ITERATIONS) {
     `any file, and do NOT run \`git stash\`/\`checkout\`/\`reset\`/\`clean\` or anything else that mutates the tree. ` +
     `You need no baseline comparison — judge the code as it stands. Report problems; someone else fixes them. ` +
     `One exception: the run log and repo notes named above live OUTSIDE the worktree — updating them is required.`
-  const verifyScope = iteration === 1
+  const fullVerify = iteration === 1 || verifyGap
+  const verifyScope = fullVerify
     ? `Run the test suite, then exercise it LIVE per the verify method (boot the app, hit endpoints, run integration).`
     : `This code verified clean in an earlier round; only these revisions have landed since:\n` +
       `${revisions.map((r) => `- ${r}`).join('\n')}\n` +
@@ -821,10 +917,11 @@ while (iteration < MAX_ITERATIONS) {
       `Requirements (context — and the vocabulary to write \`soWhat\` in):\n${refine.requirements}\n` +
       `Adversarial stance: report only defects that survive scrutiny. Stage any recurring-miss lesson to ` +
       `${playbookDir}/lessons/<lens>.candidates.md (never a promoted lane). Return findings.\n\n` +
-      SO_WHAT_RULE + readOnlyRule,
+      SO_WHAT_RULE + readOnlyRule + DESCRIBE_SHELL,
       { label: `review:${r.name}:${iteration}`, phase: 'Review', agentType: r.agentType, model: r.model, schema: FINDINGS_SCHEMA }
     )
-    return (out && out.findings) ? out.findings : []
+    if (!out) { noAnswer(`review:${r.name}:${iteration}`); return [] }
+    return out.findings || []
   }
 
   const concurrent = await parallel([
@@ -833,6 +930,8 @@ while (iteration < MAX_ITERATIONS) {
     ...reviewPanel.map(reviewTask),
   ])
   let verify = concurrent[0]
+  if (verify && fullVerify) { verifyAnswered(); verifyGap = false }
+  if (!verify) { noAnswer(`verify:${iteration}.0`); verifyGap = true }
   lastFindings = concurrent.slice(1).flatMap((f) => f || [])
   verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
 
@@ -849,14 +948,17 @@ while (iteration < MAX_ITERATIONS) {
     const fix = collect(await agent(
       `Verification failed. Fix ONLY these failing behaviors in the current worktree, then report changed files. ` +
       `A fresh verification (which owns the full-suite gate) runs right after you return.\n\n` +
-      `Failures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock() + TEST_SCOPE_RULE + CHANNELS,
+      `Failures:\n${verify.failures.map((f) => `- ${f}`).join('\n')}\n\n${planBlock}` + notesBlock() + TEST_SCOPE_RULE + CHANNELS +
+      progressRule(`implement:${iteration}.fix${vAttempt}`, 'fix', verify.failures || []),
       { label: `implement:${iteration}.fix${vAttempt}`, phase: 'Verify', agentType: 'masterdevs:engineer', model: 'opus', schema: IMPLEMENT_SCHEMA }
     ))
-    if (!fix || fix.status === 'blocked') break
+    if (!fix) { noAnswer(`implement:${iteration}.fix${vAttempt}`); break }
+    if (fix.status === 'blocked') break
     changedFiles = merge(changedFiles, fix.changedFiles)
     if (fix.notes) carryNotes = fix.notes
     verify = await agent(verifyPrompt(vAttempt, justFixed), {
       label: `verify:${iteration}.${vAttempt}`, phase: 'Verify', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA })
+    if (!verify) { noAnswer(`verify:${iteration}.${vAttempt}`); verifyGap = true }
     verifyNeedsApproval = (verify && verify.needsApprovalFor) || []
   }
   verifyPassed = !!(verify && verify.passed)
@@ -873,7 +975,8 @@ while (iteration < MAX_ITERATIONS) {
   const iter = await agent(
     `Decide whether to run the loop again. You are given this round's review findings plus verify status.\n\n` +
     `Findings:\n${JSON.stringify(lastFindings, null, 2)}\n\n` +
-    `Verify passed: ${verifyPassed}. Iteration ${iteration}/${MAX_ITERATIONS}.\n` +
+    `Verify passed: ${verify ? verifyPassed : 'unknown — verification got no answer, which is not a failure'}. ` +
+    `Iteration ${iteration}/${MAX_ITERATIONS}.\n` +
     `Requirements + plan (to judge conflicts):\n${refine.requirements}\n${plan.summary}\n\n` +
     `Partition the findings into FOUR buckets:\n` +
     `- \`mustFix\` — revisions that come from a critical/high finding or a verify failure. ONLY these justify ` +
@@ -890,7 +993,7 @@ while (iteration < MAX_ITERATIONS) {
     `requirements' vocabulary.\n${SO_WHAT_RULE}`,
     { label: `iterate:${iteration}`, phase: 'Iterate', agentType: 'general-purpose', model: 'sonnet', schema: ITERATE_SCHEMA }
   )
-  if (!iter) break
+  if (!iter) { noAnswer(`iterate:${iteration}`); break }
   deferred.push(...(iter.deferred || []))
   conflicts.push(...(iter.conflicts || []))
   polish.push(...(iter.polish || []))
@@ -904,6 +1007,9 @@ while (iteration < MAX_ITERATIONS) {
   // The script, not the agent, decides what earns another round: the agent can vote to stop, never to prolong.
   if (iter.decision !== 'continue') break
   if (!revisions.length && !hasBlocking && verifyPassed) break
+  // A Verify that got no answer is not a failure to fix: with nothing else to fix, another round would
+  // only re-run every agent to ask the same question of a model that is not answering.
+  if (!verify && !revisions.length && !hasBlocking) break
 }
 
 // ── Polish: the batched medium/low revisions, applied once ──────────────────
@@ -925,6 +1031,7 @@ if (polish.length && !conflicts.length && !impossibleCriteria.length) {
     `Revisions:\n${polish.map((r) => `- ${r}`).join('\n')}\n\n(Plan context)\n${planBlock}` + notesBlock() + TEST_SCOPE_RULE + CHANNELS,
     { label: 'polish', phase: 'Polish', agentType: 'masterdevs:engineer', model: 'sonnet', schema: IMPLEMENT_SCHEMA }
   ))
+  if (!pol) noAnswer('polish')
   if (pol) {
     polishTouchedTree = (pol.changedFiles || []).length > 0
     changedFiles = merge(changedFiles, pol.changedFiles)
@@ -955,6 +1062,7 @@ if (verifyPassed && (polishApplied.length || polishTouchedTree)) {
     `Changed files: ${changedFiles.join(', ')}` + CONTEXT_DISCIPLINE,
     { label: 'verify:final', phase: 'Polish', agentType: 'general-purpose', model: 'sonnet', schema: VERIFY_SCHEMA }
   )
+  if (!finalVerify) noAnswer('verify:final')
   if (finalVerify) {
     verifyPassed = !!finalVerify.passed
     verifyNeedsApproval = finalVerify.needsApprovalFor || verifyNeedsApproval
@@ -972,9 +1080,10 @@ if (reviewStale && verifyPassed && !conflicts.length) {
     `${polishApplied.length ? `, plus a batch of low-risk polish edits` : ``}. Review ONLY what changed after ` +
     `that review — use \`git diff\` to isolate it — across security, performance, design, and correctness. Do ` +
     `not re-review the rest of the feature. Return findings.\n\n` +
-    `Requirements (context):\n${refine.requirements}`,
+    `Requirements (context):\n${refine.requirements}` + DESCRIBE_SHELL,
     { label: 'review:post-fix', phase: 'Polish', agentType: 'masterdevs:reviewer', model: 'opus', schema: FINDINGS_SCHEMA }
   )
+  if (!staleReview) noAnswer('review:post-fix')
   if (staleReview && staleReview.findings) lastFindings = [...lastFindings, ...staleReview.findings]
 }
 
@@ -986,7 +1095,7 @@ const unresolvedBlocking = lastFindings.filter((f) => BLOCKING.has(f.severity))
 // this design exists to avoid. A genuine dead end returns `blocked` long before reaching this line.
 return {
   outcome: (verifyPassed && unresolvedBlocking.length === 0 && conflicts.length === 0
-    && impossibleCriteria.length === 0)
+    && impossibleCriteria.length === 0 && agentFailures.length === 0)
     ? 'passed' : 'needs-attention',
   iterations: iteration,
   changedFiles,
@@ -1002,6 +1111,7 @@ return {
   polishApplied,              // medium/low revisions batched and applied once, without re-review
   deferred,                   // recorded, intentionally not addressed
   unresolvedBlocking,         // high/critical findings still open after the cap
+  agentFailures,              // agents that got no answer from their model — their checks did not happen
   requirementsPath: reqPath,
   planPath: planFilePath,
   outputTokens: (typeof budget !== 'undefined' && budget) ? budget.spent() : undefined,
