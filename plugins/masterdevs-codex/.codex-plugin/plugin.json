@@ -1,6 +1,6 @@
 {
   "name": "masterdevs",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Orchestrated feature development for Codex: settle intent, approve a fact-checked plan, implement, verify, review, iterate, and report.",
   "author": {
     "name": "Kevin Prudente",

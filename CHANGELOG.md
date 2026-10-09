@@ -4,6 +4,13 @@ Notable changes to `masterdevs`. Format follows [Keep a Changelog](https://keepa
 versioning is [semver](https://semver.org/), pre-1.0 — **minor versions may break interfaces** (schemas
 gain required fields, result fields change meaning). Pin a version if that matters to you.
 
+## [0.17.0](https://github.com/MasterDevs/masterclaude/compare/v0.16.0...v0.17.0) (2026-10-09)
+
+
+### Added
+
+* show a live progress pane while the feature loop runs ([#8](https://github.com/MasterDevs/masterclaude/issues/8)) ([de0ddc0](https://github.com/MasterDevs/masterclaude/commit/de0ddc056a1ae04d644b4b087e91181875e0e3f2))
+
 ## [0.16.0](https://github.com/MasterDevs/masterclaude/compare/v0.15.1...v0.16.0) (2026-10-08)
 
 
