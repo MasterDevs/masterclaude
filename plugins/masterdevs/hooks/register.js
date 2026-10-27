@@ -4,12 +4,12 @@
 //   tool.call     notes each workflow agent's tool calls as they start and finish (observed history)
 //   clock.every   every 5s: re-read this session's run record, fold the notes in, redraw
 //   Pane          draws the run headline and one rolling six-line section per live agent
-//   AbovePrompt   a one-line hint while the pane is open but the terminal is too narrow to seat it
-//   /masterdevs-status   opens the pane now, at any width, even mid-turn
+//   AbovePrompt   a MasterDevs button once this session has a run, which shows or hides the pane
+//   /masterdevs-status   shows or hides the pane now, at any width, even mid-turn
 //
 // The pane opens by itself once per run, never taking the keyboard, and closes by itself once when the
 // run ends (a plan to approve, a finished build); the next run opens it again. Closing it by
-// hand keeps it closed for the rest of the session until /masterdevs-status reopens it.
+// hand keeps it closed for the rest of the session until the button or /masterdevs-status reopens it.
 
 import { read, update } from 'claude-code'
 
@@ -39,7 +39,6 @@ const TAILS = { plugin: 'masterdevs', key: 'tails' }
 const SAMPLES = { plugin: 'masterdevs', key: 'samples' }
 const DISMISSED = { plugin: 'masterdevs', key: 'dismissed' }
 const AUTO_OPENED = { plugin: 'masterdevs', key: 'autoOpened' }
-const HINT = { plugin: 'masterdevs', key: 'hint' }
 const SESSION = { plugin: 'masterdevs', key: 'session' }
 const TRANSCRIPT = { plugin: 'masterdevs', key: 'transcript' }
 const LAUNCHES = { plugin: 'masterdevs', key: 'launches' }
@@ -147,7 +146,7 @@ async function seedHistory($, now) {
 async function registerCommand($) {
   await $.command.register({
     name: COMMAND,
-    description: 'Show live MasterDevs progress for this session',
+    description: 'Show or hide live MasterDevs progress for this session',
     immediate: true,
   })
 }
@@ -176,7 +175,6 @@ async function bind($, sessionId) {
   await $.state.set(SAMPLES, {})
   await $.state.set(DISMISSED, false)
   await $.state.set(AUTO_OPENED, null)
-  await $.state.set(HINT, false)
   await $.state.set(LAUNCHES, [])
   await $.state.set(PROGRESS, {})
   await $.state.set(AUTO_CLOSED, null)
@@ -201,7 +199,6 @@ async function maybeClose($, view) {
 async function maybeOpen($, view) {
   const live = view.kind === 'run' && !view.model.lifecycle.terminal
   if (!live) {
-    if (await read($, HINT)) await $.state.set(HINT, false)
     await maybeClose($, view)
     return
   }
@@ -209,13 +206,7 @@ async function maybeOpen($, view) {
   const runId = runKey(view)
   if ((await read($, AUTO_OPENED)) !== runId) {
     await $.state.set(AUTO_OPENED, runId)
-    const opened = await $.ui.open({ id: PANE, title: TITLE })
-    await $.state.set(HINT, !opened.isPlaced)
-    return
-  }
-  if (await read($, HINT)) {
-    const pane = (await $.ui.panes()).find((p) => p.id === PANE)
-    if (!pane || pane.isPlaced) await $.state.set(HINT, false)
+    await $.ui.open({ id: PANE, title: TITLE })
   }
 }
 
@@ -274,6 +265,22 @@ async function refresh($, force) {
   if (inFlight === mine) inFlight = null
 }
 
+// The command and the button: hide the pane when it is drawn, otherwise show it. A pane opened but
+// held back on a narrow terminal is not drawn, so asking seats it rather than closing it. Hiding it
+// this way is the person's choice, kept for the session like the pane's own close mark.
+async function toggle($) {
+  const pane = (await $.ui.panes()).find((p) => p.id === PANE)
+  if (pane?.isShown && pane.isPlaced) {
+    await $.ui.close({ id: PANE })
+    await $.state.set(DISMISSED, true)
+    return 'MasterDevs status pane closed.'
+  }
+  await $.state.set(DISMISSED, false)
+  await refresh($, true)
+  await $.ui.open({ id: PANE, title: TITLE })
+  return 'MasterDevs status pane opened.'
+}
+
 export const register = (on) => {
   on('session.start', async ($, e, next) => {
     isInteractive = e.isInteractive !== false
@@ -303,7 +310,6 @@ export const register = (on) => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear' || e.reason === 'resume') {
       await $.state.set(VIEW, { kind: 'starting' })
-      await $.state.set(HINT, false)
     } else {
       timer?.cancel()
       timer = null
@@ -311,20 +317,12 @@ export const register = (on) => {
     return next(e)
   })
 
-  on('command.run', { command: COMMAND }, async ($) => {
-    await $.state.set(DISMISSED, false)
-    await refresh($, true)
-    await $.ui.open({ id: PANE, title: TITLE })
-    await $.state.set(HINT, false)
-    return { text: 'MasterDevs status pane opened.' }
-  }).catch(() => ({ text: 'MasterDevs status pane could not open; try again in a moment.' }))
+  on('command.run', { command: COMMAND }, async ($) => ({ text: await toggle($) }))
+    .catch(() => ({ text: 'MasterDevs status pane could not open; try again in a moment.' }))
 
   // The person's close is a decision for the session; a plugin close or an unload is not.
   on('ui.close', { id: PANE }, async ($, e, next) => {
-    if (e.origin?.kind === 'person') {
-      await $.state.set(DISMISSED, true)
-      await $.state.set(HINT, false)
-    }
+    if (e.origin?.kind === 'person') await $.state.set(DISMISSED, true)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -368,13 +366,16 @@ export const register = (on) => {
       ...lines.map((l) => h(Text, { ...TONE[l.tone], wrap: 'truncate-end' }, l.text || ' ')))
   })
 
-  // Only while the pane waits unseated: say how to see it, and keep whatever else draws here.
+  // Once this session has a run: one button that shows or hides the pane, above whatever else draws
+  // here. A dismissed pane stops reading the run, so its button names no phase that may be stale.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || !(await read($, HINT))) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
+    const view = await read($, VIEW)
+    if (e.props.hasSurvey || view?.kind !== 'run') return next(e)
+    const where = (await read($, DISMISSED)) ? [] : [view.model.phase || 'starting', view.model.lifecycle.text]
+    const { Box, Button } = $.ui.resolve(e)
     const below = await next(e)
     return h(Box, { flexDirection: 'column' },
-      h(Text, { dimColor: true, wrap: 'truncate-end' }, 'MasterDevs is running · /masterdevs-status shows live progress'),
+      h(Button, { key: 'masterdevs-toggle', label: [TITLE, ...where].join(' · '), onPress: () => toggle($) }),
       below)
   })
 }
