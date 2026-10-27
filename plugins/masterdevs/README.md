@@ -152,10 +152,11 @@ The 5-minute heartbeat line does not include the ETA.
 
 **Opening and closing**
 
-- Type `/masterdevs-status` to open the pane at any time, even mid-turn.
-- When a run ends, the pane closes by itself: when the plan is ready for your approval, when the run has questions for you, and when the build loop is done. The result is in the chat. Once you approve and the build starts, it opens again. Reopen it with `/masterdevs-status`, and it stays open.
-- Close the pane yourself, and it stays closed for the rest of this session. `/masterdevs-status` opens it again.
-- On a narrow terminal (under 144 columns), Claude Code holds back a pane that opens by itself. A one-line hint above the prompt then points to `/masterdevs-status`.
+- Once this session has a run, a `MasterDevs · <phase> · <status>` button sits above the prompt. Press it to show or hide the pane.
+- Type `/masterdevs-status` to do the same at any time, even mid-turn.
+- When a run ends, the pane closes by itself: when the plan is ready for your approval, when the run has questions for you, and when the build loop is done. The result is in the chat. Once you approve and the build starts, it opens again. Reopen it with the button or `/masterdevs-status`, and it stays open.
+- Close the pane yourself, with its close mark, the button, or `/masterdevs-status`, and it stays closed for the rest of this session. The button or `/masterdevs-status` opens it again.
+- On a narrow terminal (under 144 columns), Claude Code holds back a pane that opens by itself. The button or `/masterdevs-status` then shows it at once.
 
 ### The 5-minute heartbeat
 

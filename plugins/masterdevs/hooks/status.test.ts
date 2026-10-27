@@ -92,6 +92,14 @@ function world(on: any, o: { sessionId?: string | null, files?: Files, placed?: 
   return { clock, asked, store, reads: fsw.reads, lists: fsw.lists, switchTo: (id: string) => { sessionId = id } }
 }
 
+// Another mod's band content beneath ours, which the button must keep.
+function otherBand(on: any) {
+  on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => {
+    const { Text } = $.ui.resolve(e)
+    return h(Text, {}, 'other band')
+  })
+}
+
 const start = ($: any) => $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
 
 async function paneText($: any, columns = 60, rows = 30) {
@@ -310,37 +318,67 @@ describe('pane lifecycle', () => {
     expect(w.asked.opens.length).toBe(0)
   })
 
-  test('narrow terminal: hint above the prompt; the command opens it at once', async ($, on) => {
+  test('narrow terminal: the button above the prompt; the command seats the pane at once', async ($, on) => {
     const files: Files = { [`${PROJECT}/${SID}/workflows/wf_a.json`]: { text: record({ runId: 'r1', agents: [engineer] }) } }
     const w = world(on, { files, placed: false })
-    // Another mod's band content beneath ours, which the hint must keep.
-    on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => {
-      const { Text } = $.ui.resolve(e)
-      return h(Text, {}, 'other band')
-    })
+    otherBand(on)
     await start($)
     await w.clock.settle()
     const band = await $.ui.mount({ plugin: 'masterdevs', surface: 'terminal', component: 'AbovePrompt',
       props: { hasSurvey: false, isWorking: true, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 3 }, view: {} } })
-    expect((await band.find({ type: 'Text', text: /masterdevs-status/ }))).toBeDefined()
+    expect((await band.find({ type: 'Button', key: 'masterdevs-toggle' }))?.text).toBe('MasterDevs · Implement · running')
     expect((await band.find({ type: 'Text', text: 'other band' }))).toBeDefined()
     const out = await $.command.run({ command: 'masterdevs-status', args: '' })
     expect(JSON.stringify(out)).toContain('opened')
     expect(w.asked.opens.length).toBe(2)
+    expect(w.asked.closes.length).toBe(0)
+  })
+
+  test('no button above the prompt before this session has a run', async ($, on) => {
+    world(on)
+    otherBand(on)
+    await start($)
+    const band = await $.ui.mount({ plugin: 'masterdevs', surface: 'terminal', component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 3 }, view: {} } })
+    expect(await band.find({ type: 'Button', key: 'masterdevs-toggle' })).toBeUndefined()
   })
 
   // A person's close (the pane's close mark) is raised only by the engine; the test kit has no call
-  // for it, so dismissal is not exercised here. What is: the command always opens and re-reads.
-  test('the command opens the pane and reads fresh state at once', async ($, on) => {
+  // for it. The command and the button stand in: closing with them is the person's choice too.
+  test('the command hides a shown pane and keeps it closed; again, it shows it with fresh state', async ($, on) => {
     const files: Files = { [`${PROJECT}/${SID}/workflows/wf_a.json`]: { text: record({ runId: 'r1', agents: [engineer] }) } }
     const w = world(on, { files })
     await start($)
     await w.clock.settle()
+    expect(w.asked.opens.length).toBe(1)
+    const closed = await $.command.run({ command: 'masterdevs-status', args: '' })
+    expect(JSON.stringify(closed)).toContain('closed')
+    expect(w.asked.closes.length).toBe(1)
+    await w.clock.advance(20_000)
+    expect(w.asked.opens.length).toBe(1)
+
     files[`${PROJECT}/${SID}/workflows/wf_a.json`] = { text: record({ runId: 'r1', agents: [{ ...engineer, toolCalls: 9 }] }), mtimeMs: 5 }
     const reads = w.reads.length
-    await $.command.run({ command: 'masterdevs-status', args: '' })
+    const opened = await $.command.run({ command: 'masterdevs-status', args: '' })
+    expect(JSON.stringify(opened)).toContain('opened')
     expect(w.asked.opens.length).toBe(2)
     expect(w.reads.length).toBe(reads + 1)
+  })
+
+  test('the button hides and shows the pane, naming no phase while hidden', async ($, on) => {
+    const files: Files = { [`${PROJECT}/${SID}/workflows/wf_a.json`]: { text: record({ runId: 'r1', agents: [engineer] }) } }
+    const w = world(on, { files })
+    otherBand(on)
+    await start($)
+    await w.clock.settle()
+    const mount = () => $.ui.mount({ plugin: 'masterdevs', surface: 'terminal', component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: true, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 3 }, view: {} } })
+    await (await mount()).press({ key: 'masterdevs-toggle' })
+    expect(w.asked.closes.length).toBe(1)
+    const hidden = await mount()
+    expect((await hidden.find({ type: 'Button', key: 'masterdevs-toggle' }))?.text).toBe('MasterDevs')
+    await hidden.press({ key: 'masterdevs-toggle' })
+    expect(w.asked.opens.length).toBe(2)
   })
 })
 
